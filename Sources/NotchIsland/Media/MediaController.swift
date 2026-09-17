@@ -191,14 +191,12 @@ final class MediaController {
 
         artworkDownload?.cancel()
         artworkDownload = Task { [weak self] in
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 10
-            request.cachePolicy = .returnCacheDataElseLoad
+            var image = await Self.download(url)
+            if image == nil, let alternative = ArtworkURL.sizedAlternative(for: url) {
+                image = await Self.download(alternative)
+            }
 
-            guard let (data, response) = try? await URLSession.shared.data(for: request),
-                let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-                let image = NSImage(data: data)
-            else {
+            guard let image else {
                 AppLog.media.notice(
                     "Could not load artwork from \(url.host() ?? "source", privacy: .public)")
                 return
@@ -207,6 +205,19 @@ final class MediaController {
             guard !Task.isCancelled, let self else { return }
             self.storeArtwork(image, for: url, key: key)
         }
+    }
+
+    private static func download(_ url: URL) async -> NSImage? {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        request.cachePolicy = .returnCacheDataElseLoad
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+            let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+            !data.isEmpty
+        else { return nil }
+
+        return NSImage(data: data)
     }
 
     private func storeArtwork(_ image: NSImage, for url: URL, key: String) {

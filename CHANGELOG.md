@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the current track.
 - Commands are acknowledged, so one that goes nowhere can be told apart from
   one that never arrived.
+- Artwork links that point at an image directory rather than an image are
+  retried with a size and format appended; there is no way to tell the two
+  apart by looking at the link.
 - `contentType` is carried through as an extra classification signal.
 
 ### Notes
