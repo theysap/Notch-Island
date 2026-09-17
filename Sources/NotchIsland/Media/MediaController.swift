@@ -161,3 +161,20 @@ final class MediaController {
         palette = ArtworkPalette.extract(from: image)
     }
 }
+
+#if DEBUG
+extension MediaController {
+    /// Builds a controller with fixed state, for the preview renderer. Lives
+    /// here because the properties it sets are file-private for writing, and is
+    /// compiled out of release builds.
+    static func preview(track: NowPlaying, artwork: NSImage?) -> MediaController {
+        let controller = MediaController()
+        controller.nowPlaying = track
+        if let artwork {
+            controller.artwork = artwork
+            controller.palette = ArtworkPalette.extract(from: artwork)
+        }
+        return controller
+    }
+}
+#endif

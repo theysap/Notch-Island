@@ -23,9 +23,14 @@ struct CompactIslandView: View {
             Color.clear
                 .frame(width: layout.metrics.notchWidth)
 
-            ActivityIndicator(kind: track.kind, isPlaying: track.isPlaying, tint: media.palette.accent)
-                .frame(width: 22, height: artworkSize)
-                .frame(width: layout.compactSideWidth)
+            MediaVisualizer(
+                kind: track.kind,
+                isPlaying: track.isPlaying,
+                tint: media.palette.accent,
+                progress: media.displayProgress(at: .now)
+            )
+            .frame(width: 24, height: artworkSize * 0.8)
+            .frame(width: layout.compactSideWidth)
         }
         .frame(height: layout.metrics.notchHeight)
     }

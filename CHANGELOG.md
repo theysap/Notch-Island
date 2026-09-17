@@ -5,6 +5,25 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-09-17
+
+### Added
+
+- Four activity indicators, one per content type, so the right of the notch
+  says what kind of thing is playing and not merely that something is:
+  - Music: equaliser bars, each driven by two sine waves of different
+    frequency so they drift in and out of step rather than marching.
+  - Podcast: a travelling waveform whose amplitude follows a speech envelope,
+    dropping close to silence between phrases.
+  - Video: the real playback position as a track with a lit head, sweeping
+    instead when the source reports no duration.
+  - Anything unidentified: a slow pulse.
+- `VisualizerCanvas`, which draws each indicator in a single `Canvas` pass at
+  30fps and stops the timeline entirely while playback is paused.
+- A debug-only preview renderer (`--render-previews <directory>`) that writes
+  the island's states to PNG. Capturing a floating panel needs screen-recording
+  permission; this needs none. It is compiled out of release builds.
+
 ## [0.4.0] - 2026-09-17
 
 ### Added
