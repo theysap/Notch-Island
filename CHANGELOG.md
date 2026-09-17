@@ -5,6 +5,45 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-09-17
+
+### Fixed
+
+- The island never updated after launch, and Apple Music showed as nothing
+  playing. Three separate faults, each found by probing the daemon directly:
+  - MediaRemote's notifications arrive on Core Foundation's **local**
+    notification centre, not through `NSNotificationCenter`, and most of their
+    names begin with an underscore. Watching `NSNotificationCenter` for names
+    beginning `kMR` therefore saw nothing at all. Observing the right centre
+    delivers playback state changes immediately and signals every track change.
+  - The command reader's dispatch source was a local variable, released by ARC
+    the moment the function returned, so it stopped delivering events. Every
+    transport command was silently dropped. It is now held for the life of the
+    process.
+  - The now-playing dictionary is handed over only when it has changed since
+    the daemon last delivered it — steady playback produces no reply at all.
+    The previous code gave up after 600ms and discarded whatever arrived later,
+    which threw away every update. The request now stands until it answers and
+    is re-armed afterwards.
+
+### Added
+
+- Real artwork. Apple Music publishes no image bytes anywhere in its dictionary
+  — it puts an https URL in the artwork field instead — so a URL is forwarded
+  to the app, which fetches, caches and tints from it. A download is cancelled
+  if the track changes first, so a slow fetch cannot put the previous cover over
+  the current track.
+- Commands are acknowledged, so one that goes nowhere can be told apart from
+  one that never arrived.
+- `contentType` is carried through as an extra classification signal.
+
+### Notes
+
+- A source that is playing but has published no metadata yet — which happens
+  when the app starts part-way through a track, since the dictionary is only
+  handed over on a change — shows an island naming the source. It fills in
+  properly at the next track change.
+
 ## [0.12.0] - 2026-09-17
 
 ### Fixed

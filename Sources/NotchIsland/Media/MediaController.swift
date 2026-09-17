@@ -30,6 +30,12 @@ final class MediaController {
     private let connection = MediaBridgeConnection()
     private var listener: Task<Void, Never>?
     private var artworkKey: String?
+    private var artworkDownload: Task<Void, Never>?
+
+    /// Decoded artwork, keyed by the URL it came from. Small, because it only
+    /// ever holds what has recently been on screen.
+    private var artworkCache: [URL: NSImage] = [:]
+    private static let artworkCacheLimit = 24
 
     // MARK: - Lifecycle
 
@@ -110,6 +116,8 @@ final class MediaController {
             Task { [connection] in await connection.noteHealthy() }
 
         case .idle:
+            artworkDownload?.cancel()
+            artworkDownload = nil
             nowPlaying = nil
             artwork = nil
             artworkKey = nil
@@ -122,6 +130,9 @@ final class MediaController {
 
         case .artwork(let key, _, let data):
             applyArtwork(key: key, data: data)
+
+        case .artworkURL(let key, let url):
+            fetchArtwork(key: key, from: url)
 
         case .failure(let message):
             AppLog.media.error("Bridge reported: \(message, privacy: .public)")
@@ -139,6 +150,8 @@ final class MediaController {
         // with no visible gap, and if it never arrives the icon is already
         // there.
         artworkKey = nil
+        artworkDownload?.cancel()
+        artworkDownload = nil
         applySourceIcon(for: track)
     }
 
@@ -158,6 +171,54 @@ final class MediaController {
         artwork = icon
         artworkIsSourceIcon = true
         palette = ArtworkPalette.extract(from: icon)
+    }
+
+    /// Downloads artwork a source linked to rather than supplied.
+    ///
+    /// The request is cancelled if the track changes before it lands, so a slow
+    /// download cannot arrive late and put the previous track's cover over the
+    /// current one.
+    private func fetchArtwork(key: String, from url: URL) {
+        guard key != artworkKey else { return }
+
+        if let cached = artworkCache[url] {
+            artworkKey = key
+            artwork = cached
+            artworkIsSourceIcon = false
+            palette = ArtworkPalette.extract(from: cached)
+            return
+        }
+
+        artworkDownload?.cancel()
+        artworkDownload = Task { [weak self] in
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 10
+            request.cachePolicy = .returnCacheDataElseLoad
+
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                let image = NSImage(data: data)
+            else {
+                AppLog.media.notice(
+                    "Could not load artwork from \(url.host() ?? "source", privacy: .public)")
+                return
+            }
+
+            guard !Task.isCancelled, let self else { return }
+            self.storeArtwork(image, for: url, key: key)
+        }
+    }
+
+    private func storeArtwork(_ image: NSImage, for url: URL, key: String) {
+        if artworkCache.count >= Self.artworkCacheLimit {
+            artworkCache.removeAll(keepingCapacity: true)
+        }
+        artworkCache[url] = image
+
+        artworkKey = key
+        artwork = image
+        artworkIsSourceIcon = false
+        palette = ArtworkPalette.extract(from: image)
     }
 
     private func applyArtwork(key: String, data: Data) {

@@ -6,6 +6,10 @@ enum BridgeMessage: Sendable {
     case idle
     case state(NowPlaying)
     case artwork(key: String, mimeType: String, data: Data)
+    /// Some sources publish a link to their artwork instead of the bytes.
+    /// Apple Music is one: it provides an mzstatic URL and no image data
+    /// anywhere in the dictionary.
+    case artworkURL(key: String, url: URL)
     case failure(String)
 }
 
@@ -17,6 +21,7 @@ private struct BridgeEnvelope: Decodable {
     let key: String?
     let mimeType: String?
     let data: String?
+    let url: String?
     let message: String?
 }
 
@@ -28,6 +33,7 @@ private struct StatePayload: Decodable {
     let parentBundleIdentifier: String?
     let appName: String?
     let mediaType: String?
+    let contentType: String?
     let isMusicApp: Bool?
     let duration: Double?
     let elapsedTime: Double?
@@ -67,6 +73,13 @@ extension BridgeMessage {
                 data: bytes
             )
 
+        case "artworkURL":
+            guard let key = envelope.key,
+                let text = envelope.url,
+                let url = ArtworkURL.resolve(text)
+            else { return nil }
+            return .artworkURL(key: key, url: url)
+
         case "state":
             guard let payload = envelope.payload else { return nil }
             return .state(payload.makeNowPlaying())
@@ -84,7 +97,7 @@ private extension StatePayload {
         let source = parentBundleIdentifier ?? bundleIdentifier
 
         let kind = MediaKind.infer(
-            mediaType: mediaType,
+            mediaType: mediaType ?? contentType,
             isMusicApp: isMusicApp,
             bundleIdentifier: source,
             album: album,

@@ -112,6 +112,8 @@ static NSString *const kInfoUniqueIdentifier = @"kMRMediaRemoteNowPlayingInfoUni
 static NSString *const kInfoArtworkData = @"kMRMediaRemoteNowPlayingInfoArtworkData";
 static NSString *const kInfoArtworkMIMEType = @"kMRMediaRemoteNowPlayingInfoArtworkMIMEType";
 static NSString *const kInfoArtworkIdentifier = @"kMRMediaRemoteNowPlayingInfoArtworkIdentifier";
+static NSString *const kInfoArtworkURL = @"kMRMediaRemoteNowPlayingInfoArtworkURL";
+static NSString *const kInfoContentType = @"kMRMediaRemoteNowPlayingInfoContentType";
 
 #pragma mark - Output
 
@@ -202,72 +204,54 @@ static NSString *gLastSignature = nil;
 /// per track rather than once per notification.
 static NSString *gLastArtworkKey = nil;
 
-/// Artwork retry bookkeeping. Some sources — Safari and Chrome in particular —
-/// publish artwork metadata before the bytes exist: the dictionary carries a
-/// MIME type and pixel dimensions but no data. Asking again a moment later
-/// usually fills it in, so each track gets a short, bounded retry chain rather
-/// than a retry on every notification.
-static NSString *gArtworkPendingTrack = nil;
-static NSUInteger gArtworkAttempt = 0;
-static BOOL gArtworkRetryInFlight = NO;
-
-/// Back-off schedule for those retries. A track that still has no bytes after
-/// the last one is treated as having no artwork, and the app falls back to the
-/// source application's icon.
-static const NSTimeInterval kArtworkRetryDelays[] = {0.4, 1.2, 3.0};
-static const NSUInteger kArtworkRetryCount =
-    sizeof(kArtworkRetryDelays) / sizeof(kArtworkRetryDelays[0]);
-
-static void NMBPublish(void);
-
-static void NMBScheduleArtworkRetry(void) {
-    if (gArtworkRetryInFlight || gArtworkAttempt >= kArtworkRetryCount) {
-        return;
+/// Artwork identifiers are not always identifiers. Apple Music puts an https
+/// URL in this field and no image bytes anywhere, so a URL is forwarded to the
+/// app to fetch. Browser sources use a numeric identifier and, sometimes,
+/// bytes.
+static NSString *NMBArtworkURLString(NSDictionary *info) {
+    NSString *candidate = NMBString(info, kInfoArtworkURL) ?: NMBString(info, kInfoArtworkIdentifier);
+    if (candidate == nil) {
+        return nil;
     }
-    NSTimeInterval delay = kArtworkRetryDelays[gArtworkAttempt];
-    gArtworkAttempt += 1;
-    gArtworkRetryInFlight = YES;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        gArtworkRetryInFlight = NO;
-        NMBPublish();
-    });
+    if ([candidate hasPrefix:@"https://"] || [candidate hasPrefix:@"http://"]) {
+        return candidate;
+    }
+    return nil;
 }
 
 static void NMBEmitArtwork(NSDictionary *info, NSString *trackKey) {
     NSString *track = trackKey ?: @"-";
-    if (![track isEqualToString:gArtworkPendingTrack]) {
-        gArtworkPendingTrack = track;
-        gArtworkAttempt = 0;
-    }
 
+    // Bytes, when the source supplies them.
     id data = info[kInfoArtworkData];
-    if (![data isKindOfClass:NSData.class] || [(NSData *)data length] == 0) {
-        // Metadata without bytes means the source is still fetching.
-        if (info[kInfoArtworkMIMEType] != nil || info[kInfoArtworkIdentifier] != nil) {
-            NMBScheduleArtworkRetry();
+    if ([data isKindOfClass:NSData.class] && [(NSData *)data length] > 0) {
+        NSString *key = [NSString stringWithFormat:@"%@|bytes|%lu", track,
+                                                   (unsigned long)[(NSData *)data length]];
+        if ([key isEqualToString:gLastArtworkKey]) {
+            return;
         }
+        gLastArtworkKey = key;
+
+        NMBEmit(@{
+            @"type": @"artwork",
+            @"key": key,
+            @"mimeType": NMBString(info, kInfoArtworkMIMEType) ?: @"application/octet-stream",
+            @"data": [(NSData *)data base64EncodedStringWithOptions:0],
+        });
         return;
     }
 
-    // Bytes arrived, so no further attempts are needed for this track.
-    gArtworkAttempt = kArtworkRetryCount;
+    // Otherwise a URL, which the app fetches and caches.
+    NSString *url = NMBArtworkURLString(info);
+    if (url != nil) {
+        NSString *key = [NSString stringWithFormat:@"%@|url|%@", track, url];
+        if ([key isEqualToString:gLastArtworkKey]) {
+            return;
+        }
+        gLastArtworkKey = key;
 
-    NSString *identifier = NMBArtworkIdentifier(info);
-    NSString *key = [NSString stringWithFormat:@"%@|%@|%lu", trackKey ?: @"-",
-                                               identifier ?: @"-",
-                                               (unsigned long)[(NSData *)data length]];
-    if ([key isEqualToString:gLastArtworkKey]) {
-        return;
+        NMBEmit(@{@"type": @"artworkURL", @"key": key, @"url": url});
     }
-    gLastArtworkKey = key;
-
-    NMBEmit(@{
-        @"type": @"artwork",
-        @"key": key,
-        @"mimeType": NMBString(info, kInfoArtworkMIMEType) ?: @"application/octet-stream",
-        @"data": [(NSData *)data base64EncodedStringWithOptions:0],
-    });
 }
 
 /// Last info dictionary that actually arrived.
@@ -279,79 +263,74 @@ static void NMBEmitArtwork(NSDictionary *info, NSString *trackKey) {
 /// of blanking the island.
 static NSDictionary *gCachedInfo = nil;
 
-/// Set while a publish is waiting on its callbacks, so a burst of
-/// notifications does not start a dozen overlapping fetches.
-static BOOL gPublishInFlight = NO;
+/// Last playing state the daemon actually reported.
+static BOOL gLastKnownIsPlaying = NO;
+static BOOL gHaveKnownIsPlaying = NO;
 
-/// How long to wait for the three queries before publishing what did arrive.
-static const NSTimeInterval kPublishDeadline = 0.6;
+/// True while an info request is outstanding.
+static BOOL gInfoRequestPending = NO;
 
 static void NMBFinish(NSDictionary *info, id client, BOOL isPlaying);
+static void NMBRefreshClient(void);
 
-/// Fetches the current state and, if it differs from what the app already has,
-/// emits it.
+/// Asks for the now-playing dictionary and leaves the request standing.
 ///
-/// The three queries are issued together rather than nested, and a deadline
-/// publishes whatever has arrived. Nesting them meant one query that never
-/// answered stopped the island updating at all.
-static void NMBPublish(void) {
-    if (gPublishInFlight) {
+/// This query behaves as a one-shot subscription rather than a plain fetch. It
+/// answers immediately only if the dictionary has changed since the daemon last
+/// handed it to anyone; otherwise the callback simply waits, and fires when
+/// something next changes — a new track, a pause, a seek. That can be seconds
+/// or minutes later.
+///
+/// So the request is made once and left alone until it answers, and re-armed
+/// straight afterwards. An earlier version gave up on it after 600ms and
+/// discarded whatever arrived late, which threw away every update the daemon
+/// ever sent and left the island frozen on whatever was playing at launch.
+static void NMBRequestInfo(void) {
+    if (gInfoRequestPending) {
         return;
     }
-    gPublishInFlight = YES;
-
-    // Everything below runs on the main queue, so these need no locking.
-    __block NSDictionary *info = nil;
-    __block id client = nil;
-    __block BOOL isPlaying = NO;
-
-    __block BOOL haveInfo = NO;
-    __block BOOL haveClient = NO;
-    __block BOOL havePlaying = NO;
-    __block BOOL finished = NO;
-
-    void (^complete)(void) = ^{
-        if (finished) {
-            return;
-        }
-        finished = YES;
-        gPublishInFlight = NO;
-        NMBFinish(haveInfo ? info : nil, haveClient ? client : nil, isPlaying);
-    };
-
-    void (^checkComplete)(void) = ^{
-        if (haveInfo && haveClient && havePlaying) {
-            complete();
-        }
-    };
+    gInfoRequestPending = YES;
 
     MR.getInfo(dispatch_get_main_queue(), ^(NSDictionary *fetched) {
-        info = fetched;
-        haveInfo = YES;
-        checkComplete();
+        gInfoRequestPending = NO;
+
+        if (fetched.count > 0) {
+            gCachedInfo = fetched;
+        }
+
+        NMBRefreshClient();
+
+        // Re-arm, with a short gap so a rapid series of changes cannot spin.
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+                           NMBRequestInfo();
+                       });
     });
+}
 
-    MR.getClient(dispatch_get_main_queue(), ^(id fetched) {
-        client = fetched;
-        haveClient = YES;
-        checkComplete();
+/// Asks who is playing and whether they are playing, then publishes.
+///
+/// Unlike the dictionary, the client query answers every single time, which is
+/// what makes it usable as the test for whether anything is playing at all.
+static void NMBRefreshClient(void) {
+    MR.getClient(dispatch_get_main_queue(), ^(id client) {
+        if (MR.getIsPlaying != NULL) {
+            MR.getIsPlaying(dispatch_get_main_queue(), ^(BOOL playing) {
+                gLastKnownIsPlaying = playing;
+                gHaveKnownIsPlaying = YES;
+                NMBFinish(gCachedInfo, client, playing);
+            });
+        }
+        // The playing-state query is gated the same way the dictionary is, so
+        // publish with what is already known rather than waiting on it.
+        NMBFinish(gCachedInfo, client, gLastKnownIsPlaying);
     });
+}
 
-    if (MR.getIsPlaying != NULL) {
-        MR.getIsPlaying(dispatch_get_main_queue(), ^(BOOL playing) {
-            isPlaying = playing;
-            havePlaying = YES;
-            checkComplete();
-        });
-    } else {
-        havePlaying = YES;
-    }
-
-    dispatch_after(
-        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kPublishDeadline * NSEC_PER_SEC)),
-        dispatch_get_main_queue(), ^{
-            complete();
-        });
+/// Kept as the entry point used by the poll timer and the refresh command.
+static void NMBPublish(void) {
+    NMBRequestInfo();
+    NMBRefreshClient();
 }
 
 static void NMBFinish(NSDictionary *info, id client, BOOL isPlaying) {
@@ -371,52 +350,56 @@ static void NMBFinish(NSDictionary *info, id client, BOOL isPlaying) {
         }
     }
 
-    // Nothing is registered anywhere: the island hides.
-    if (client == nil && info.count == 0) {
+    // Idle is decided by the client query, never by a missing info reply.
+    //
+    // mediaremoted only delivers now-playing info when it has *changed* since
+    // the last delivery: steady playback produces no reply at all. Treating
+    // silence as "nothing is playing" is what made the island empty itself
+    // while music was still going. The client query, by contrast, answers
+    // every time.
+    if (client == nil) {
         if (![gLastSignature isEqualToString:@"idle"]) {
             gLastSignature = @"idle";
             gLastArtworkKey = nil;
-            gArtworkPendingTrack = nil;
             gCachedInfo = nil;
             NMBEmit(@{@"type": @"idle"});
         }
         return;
-    }
-
-    // A fetch that came back empty while a client is still registered means the
-    // query failed, not that the track vanished.
-    if (info.count > 0) {
-        gCachedInfo = info;
-    } else {
-        info = gCachedInfo;
     }
 
     NSString *title = NMBString(info, kInfoTitle);
 
-    // A registered client carrying nothing worth showing — no title, no
-    // artist, no duration — is a player that is open but idle. Apple Music
-    // sits in this state whenever playback is stopped. Showing an island with
-    // only an application icon in it tells nobody anything, so this counts as
-    // idle too.
+    // A client that has never produced any metadata is a player sitting open
+    // with nothing loaded. An island containing only an application icon tells
+    // nobody anything, so that counts as idle — but only when nothing has ever
+    // arrived for it, never merely because this fetch went unanswered.
     BOOL hasSubstance = title != nil || NMBString(info, kInfoArtist) != nil
         || NMBNumber(info, kInfoDuration) != nil;
 
     if (!hasSubstance) {
-        if (![gLastSignature isEqualToString:@"idle"]) {
-            gLastSignature = @"idle";
-            gLastArtworkKey = nil;
-            gArtworkPendingTrack = nil;
-            gCachedInfo = nil;
-            NMBEmit(@{@"type": @"idle"});
+        // Nothing has arrived for this client yet. That happens when the app
+        // starts part-way through a track: the daemon hands over the
+        // dictionary only when it changes, so there may be nothing to hand
+        // over until the next track or the next pause.
+        //
+        // If the daemon has told us something is playing, the island still
+        // appears — naming the source, filling in properly at the next change.
+        // If not, the player is merely open, and the island stays away.
+        if (!(gHaveKnownIsPlaying && isPlaying)) {
+            if (![gLastSignature isEqualToString:@"idle"]) {
+                gLastSignature = @"idle";
+                gLastArtworkKey = nil;
+                gCachedInfo = nil;
+                NMBEmit(@{@"type": @"idle"});
+            }
+            return;
         }
-        return;
     }
 
     if (title == nil && bundleIdentifier == nil && parentBundleIdentifier == nil) {
         if (![gLastSignature isEqualToString:@"idle"]) {
             gLastSignature = @"idle";
             gLastArtworkKey = nil;
-            gArtworkPendingTrack = nil;
             gCachedInfo = nil;
             NMBEmit(@{@"type": @"idle"});
         }
@@ -431,6 +414,9 @@ static void NMBFinish(NSDictionary *info, id client, BOOL isPlaying) {
     if (parentBundleIdentifier) payload[@"parentBundleIdentifier"] = parentBundleIdentifier;
     if (appName) payload[@"appName"] = appName;
     if (NMBMediaType(info)) payload[@"mediaType"] = NMBMediaType(info);
+    if (NMBString(info, kInfoContentType)) {
+        payload[@"contentType"] = NMBString(info, kInfoContentType);
+    }
     if (NMBNumber(info, kInfoIsMusicApp)) payload[@"isMusicApp"] = NMBNumber(info, kInfoIsMusicApp);
     if (NMBNumber(info, kInfoDuration)) payload[@"duration"] = NMBNumber(info, kInfoDuration);
     if (NMBNumber(info, kInfoElapsed)) payload[@"elapsedTime"] = NMBNumber(info, kInfoElapsed);
@@ -474,11 +460,13 @@ static void NMBHandleCommand(NSDictionary *command) {
         return;
     }
 
+    // Acknowledged so a command that goes nowhere can be told apart from one
+    // that never arrived.
+    NMBEmit(@{@"type": @"ack", @"cmd": name});
+
     if ([name isEqualToString:@"refresh"]) {
         gLastSignature = nil;
         gLastArtworkKey = nil;
-        gArtworkPendingTrack = nil;
-        gArtworkAttempt = 0;
         NMBPublish();
         return;
     }
@@ -566,11 +554,17 @@ static void NMBExitIfOrphaned(void) {
 
 /// Reads newline-delimited command objects from stdin. An EOF here means the
 /// app has gone away — the host process exits rather than lingering.
+/// Held for the life of the process. A dispatch source released by ARC when
+/// the function that made it returns stops delivering events, which is what
+/// silently broke every transport command.
+static dispatch_source_t gCommandSource = nil;
+
 static void NMBStartCommandReader(void) {
     dispatch_queue_t queue = dispatch_queue_create("com.notchisland.bridge.stdin",
                                                    DISPATCH_QUEUE_SERIAL);
     dispatch_source_t source =
         dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, STDIN_FILENO, 0, queue);
+    gCommandSource = source;
 
     __block NSMutableData *buffer = [NSMutableData data];
 
@@ -613,24 +607,49 @@ static void NMBStartCommandReader(void) {
 
 #pragma mark - Entry point
 
-static void NMBObserveNotifications(void) {
-    NSArray<NSString *> *names = @[
-        @"kMRMediaRemoteNowPlayingInfoDidChangeNotification",
-        @"kMRMediaRemoteNowPlayingApplicationDidChangeNotification",
-        @"kMRMediaRemoteNowPlayingApplicationIsPlayingDidChangeNotification",
-        @"kMRMediaRemoteNowPlayingPlaybackQueueDidChangeNotification",
-        @"kMRNowPlayingPlaybackQueueChangedNotification",
-    ];
+/// Safety net for anything the notifications miss. The client query is cheap
+/// and answers every time; the dictionary request below is a standing one and
+/// costs nothing to leave outstanding.
+static const NSTimeInterval kPollInterval = 2.0;
 
-    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
-    for (NSString *name in names) {
-        [center addObserverForName:name
-                            object:nil
-                             queue:NSOperationQueue.mainQueue
-                        usingBlock:^(NSNotification *notification) {
-            NMBPublish();
-        }];
+static NSString *const kUserInfoIsPlaying =
+    @"kMRMediaRemoteNowPlayingApplicationIsPlayingUserInfoKey";
+
+/// Handles a MediaRemote notification.
+///
+/// These arrive on Core Foundation's *local* notification centre, not through
+/// `NSNotificationCenter`, and most of their names begin with an underscore —
+/// which is why an earlier version that watched `NSNotificationCenter` for
+/// names beginning `kMR` saw nothing at all and concluded, wrongly, that
+/// MediaRemote sends no notifications.
+///
+/// Playback state arrives in the notification itself, so a pause shows up
+/// immediately rather than waiting for the next poll.
+static void NMBNotificationCallback(CFNotificationCenterRef centre, void *observer,
+                                    CFStringRef name, const void *object,
+                                    CFDictionaryRef userInfo) {
+    NSString *notification = (__bridge NSString *)name;
+    if (![notification hasPrefix:@"kMR"] && ![notification hasPrefix:@"_kMR"]) {
+        return;
     }
+
+    NSDictionary *info = (__bridge NSDictionary *)userInfo;
+    id playing = info[kUserInfoIsPlaying];
+    if ([playing isKindOfClass:NSNumber.class]) {
+        gLastKnownIsPlaying = [playing boolValue];
+        gHaveKnownIsPlaying = YES;
+    }
+
+    // A track change makes the daemon willing to hand over the dictionary
+    // again, so make sure a request is standing to receive it.
+    NMBRequestInfo();
+    NMBRefreshClient();
+}
+
+static void NMBObserveNotifications(void) {
+    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), NULL,
+                                    NMBNotificationCallback, NULL, NULL,
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
 }
 
 __attribute__((constructor)) static void NMBMain(void) {
@@ -650,8 +669,9 @@ __attribute__((constructor)) static void NMBMain(void) {
         if (MR.setWantsNotifications != NULL) {
             MR.setWantsNotifications(YES);
         }
-        NMBWatchParent();
         NMBObserveNotifications();
+
+        NMBWatchParent();
         NMBStartCommandReader();
 
         NMBEmit(@{@"type": @"ready", @"parentPID": @(gParentPID), @"pid": @(getpid())});
@@ -668,17 +688,17 @@ __attribute__((constructor)) static void NMBMain(void) {
         });
         dispatch_resume(orphanCheck);
 
-        // A slow heartbeat. Notifications cover essentially every change, but a
-        // source that dies without notifying would otherwise leave the island
-        // showing a stale track forever.
-        dispatch_source_t heartbeat =
+        dispatch_source_t poll =
             dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-        dispatch_source_set_timer(heartbeat, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC),
-                                  5 * NSEC_PER_SEC, NSEC_PER_SEC);
-        dispatch_source_set_event_handler(heartbeat, ^{
-            NMBPublish();
+        dispatch_source_set_timer(poll,
+                                  dispatch_time(DISPATCH_TIME_NOW,
+                                                (int64_t)(kPollInterval * NSEC_PER_SEC)),
+                                  (uint64_t)(kPollInterval * NSEC_PER_SEC), NSEC_PER_SEC / 4);
+        dispatch_source_set_event_handler(poll, ^{
+            NMBRefreshClient();
+            NMBRequestInfo();
         });
-        dispatch_resume(heartbeat);
+        dispatch_resume(poll);
 
         // Takes over the host process for good.
         dispatch_main();
