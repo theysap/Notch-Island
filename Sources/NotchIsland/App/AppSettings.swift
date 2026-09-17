@@ -60,8 +60,13 @@ final class AppSettings {
     }
 
     /// Whether the island should be on screen for the given track.
+    ///
+    /// The rule is the one macOS itself follows: if the system's own Now
+    /// Playing control has nothing in it, neither does the island. A source
+    /// that is merely open, with no title and no duration, is not worth a strip
+    /// of black across the menu bar — and hovering it should open nothing.
     func showsIsland(for track: NowPlaying?) -> Bool {
-        guard let track else { return false }
+        guard let track, track.hasDisplayableMetadata else { return false }
         return track.isPlaying || !hidesWhenPaused
     }
 

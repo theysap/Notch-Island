@@ -195,21 +195,22 @@ static NSString *NMBArtworkIdentifier(NSDictionary *info) {
 
 #pragma mark - Streaming state
 
-/// Signature of the last payload sent, used to suppress duplicate emissions.
-/// MediaRemote is chatty: a single track change can produce half a dozen
-/// notifications carrying identical content.
+/// Signature of the last status sent, so an unchanged status is not resent.
 static NSString *gLastSignature = nil;
 
-/// Artwork already delivered to the app, so the bytes travel over the pipe once
-/// per track rather than once per notification.
+/// Artwork already delivered, so the same cover is not sent twice.
 static NSString *gLastArtworkKey = nil;
+
+/// Last playing state reported, from whichever source reported it.
+static BOOL gLastKnownIsPlaying = NO;
 
 /// Artwork identifiers are not always identifiers. Apple Music puts an https
 /// URL in this field and no image bytes anywhere, so a URL is forwarded to the
 /// app to fetch. Browser sources use a numeric identifier and, sometimes,
 /// bytes.
 static NSString *NMBArtworkURLString(NSDictionary *info) {
-    NSString *candidate = NMBString(info, kInfoArtworkURL) ?: NMBString(info, kInfoArtworkIdentifier);
+    NSString *candidate =
+        NMBString(info, kInfoArtworkURL) ?: NMBString(info, kInfoArtworkIdentifier);
     if (candidate == nil) {
         return nil;
     }
@@ -254,156 +255,44 @@ static void NMBEmitArtwork(NSDictionary *info, NSString *trackKey) {
     }
 }
 
-/// Last info dictionary that actually arrived.
-///
-/// `MRMediaRemoteGetNowPlayingInfo` does not always call back — observed on
-/// macOS 27 with Apple Music playing, where the client and playing-state
-/// queries answered immediately and the info query never did. Reusing the last
-/// dictionary keeps the title and artwork on screen through those gaps instead
-/// of blanking the island.
-static NSDictionary *gCachedInfo = nil;
+/// Reads the identity of whatever is playing off a client object.
+static void NMBClientIdentity(id client, NSString **bundleIdentifier,
+                              NSString **parentBundleIdentifier, NSString **appName) {
+    *bundleIdentifier = nil;
+    *parentBundleIdentifier = nil;
+    *appName = nil;
 
-/// Last playing state the daemon actually reported.
-static BOOL gLastKnownIsPlaying = NO;
-static BOOL gHaveKnownIsPlaying = NO;
-
-/// True while an info request is outstanding.
-static BOOL gInfoRequestPending = NO;
-
-static void NMBFinish(NSDictionary *info, id client, BOOL isPlaying);
-static void NMBRefreshClient(void);
-
-/// Asks for the now-playing dictionary and leaves the request standing.
-///
-/// This query behaves as a one-shot subscription rather than a plain fetch. It
-/// answers immediately only if the dictionary has changed since the daemon last
-/// handed it to anyone; otherwise the callback simply waits, and fires when
-/// something next changes — a new track, a pause, a seek. That can be seconds
-/// or minutes later.
-///
-/// So the request is made once and left alone until it answers, and re-armed
-/// straight afterwards. An earlier version gave up on it after 600ms and
-/// discarded whatever arrived late, which threw away every update the daemon
-/// ever sent and left the island frozen on whatever was playing at launch.
-static void NMBRequestInfo(void) {
-    if (gInfoRequestPending) {
+    if (client == nil) {
         return;
     }
-    gInfoRequestPending = YES;
-
-    MR.getInfo(dispatch_get_main_queue(), ^(NSDictionary *fetched) {
-        gInfoRequestPending = NO;
-
-        if (fetched.count > 0) {
-            gCachedInfo = fetched;
-        }
-
-        NMBRefreshClient();
-
-        // Re-arm, with a short gap so a rapid series of changes cannot spin.
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-                           NMBRequestInfo();
-                       });
-    });
+    if (MR.clientBundleIdentifier != NULL) {
+        *bundleIdentifier = MR.clientBundleIdentifier(client);
+    }
+    if (MR.clientParentBundleIdentifier != NULL) {
+        *parentBundleIdentifier = MR.clientParentBundleIdentifier(client);
+    }
+    if (MR.clientDisplayName != NULL) {
+        *appName = MR.clientDisplayName(client);
+    }
 }
 
-/// Asks who is playing and whether they are playing, then publishes.
+/// Builds the payload for a track, or nil when the dictionary holds nothing
+/// worth showing.
 ///
-/// Unlike the dictionary, the client query answers every single time, which is
-/// what makes it usable as the test for whether anything is playing at all.
-static void NMBRefreshClient(void) {
-    MR.getClient(dispatch_get_main_queue(), ^(id client) {
-        if (MR.getIsPlaying != NULL) {
-            MR.getIsPlaying(dispatch_get_main_queue(), ^(BOOL playing) {
-                gLastKnownIsPlaying = playing;
-                gHaveKnownIsPlaying = YES;
-                NMBFinish(gCachedInfo, client, playing);
-            });
-        }
-        // The playing-state query is gated the same way the dictionary is, so
-        // publish with what is already known rather than waiting on it.
-        NMBFinish(gCachedInfo, client, gLastKnownIsPlaying);
-    });
-}
-
-/// Kept as the entry point used by the poll timer and the refresh command.
-static void NMBPublish(void) {
-    NMBRequestInfo();
-    NMBRefreshClient();
-}
-
-static void NMBFinish(NSDictionary *info, id client, BOOL isPlaying) {
+/// A source with no title, artist or duration is a player sitting open with
+/// nothing loaded. The island shows nothing at all in that case: an island
+/// containing only an application icon tells nobody anything.
+static NSDictionary *NMBBuildPayload(NSDictionary *info, id client, BOOL isPlaying) {
     NSString *bundleIdentifier = nil;
     NSString *parentBundleIdentifier = nil;
     NSString *appName = nil;
-
-    if (client != nil) {
-        if (MR.clientBundleIdentifier != NULL) {
-            bundleIdentifier = MR.clientBundleIdentifier(client);
-        }
-        if (MR.clientParentBundleIdentifier != NULL) {
-            parentBundleIdentifier = MR.clientParentBundleIdentifier(client);
-        }
-        if (MR.clientDisplayName != NULL) {
-            appName = MR.clientDisplayName(client);
-        }
-    }
-
-    // Idle is decided by the client query, never by a missing info reply.
-    //
-    // mediaremoted only delivers now-playing info when it has *changed* since
-    // the last delivery: steady playback produces no reply at all. Treating
-    // silence as "nothing is playing" is what made the island empty itself
-    // while music was still going. The client query, by contrast, answers
-    // every time.
-    if (client == nil) {
-        if (![gLastSignature isEqualToString:@"idle"]) {
-            gLastSignature = @"idle";
-            gLastArtworkKey = nil;
-            gCachedInfo = nil;
-            NMBEmit(@{@"type": @"idle"});
-        }
-        return;
-    }
+    NMBClientIdentity(client, &bundleIdentifier, &parentBundleIdentifier, &appName);
 
     NSString *title = NMBString(info, kInfoTitle);
-
-    // A client that has never produced any metadata is a player sitting open
-    // with nothing loaded. An island containing only an application icon tells
-    // nobody anything, so that counts as idle — but only when nothing has ever
-    // arrived for it, never merely because this fetch went unanswered.
     BOOL hasSubstance = title != nil || NMBString(info, kInfoArtist) != nil
-        || NMBNumber(info, kInfoDuration) != nil;
-
+                        || NMBNumber(info, kInfoDuration) != nil;
     if (!hasSubstance) {
-        // Nothing has arrived for this client yet. That happens when the app
-        // starts part-way through a track: the daemon hands over the
-        // dictionary only when it changes, so there may be nothing to hand
-        // over until the next track or the next pause.
-        //
-        // If the daemon has told us something is playing, the island still
-        // appears — naming the source, filling in properly at the next change.
-        // If not, the player is merely open, and the island stays away.
-        if (!(gHaveKnownIsPlaying && isPlaying)) {
-            if (![gLastSignature isEqualToString:@"idle"]) {
-                gLastSignature = @"idle";
-                gLastArtworkKey = nil;
-                gCachedInfo = nil;
-                NMBEmit(@{@"type": @"idle"});
-            }
-            return;
-        }
-    }
-
-    if (title == nil && bundleIdentifier == nil && parentBundleIdentifier == nil) {
-        if (![gLastSignature isEqualToString:@"idle"]) {
-            gLastSignature = @"idle";
-            gLastArtworkKey = nil;
-            gCachedInfo = nil;
-            NMBEmit(@{@"type": @"idle"});
-        }
-        return;
+        return nil;
     }
 
     NSMutableDictionary *payload = [NSMutableDictionary dictionary];
@@ -431,25 +320,165 @@ static void NMBFinish(NSDictionary *info, id client, BOOL isPlaying) {
     } else if (NMBNumber(info, kInfoUniqueIdentifier)) {
         payload[@"trackIdentifier"] = [NMBNumber(info, kInfoUniqueIdentifier) stringValue];
     }
-    payload[@"isPlaying"] = @(isPlaying);
+    // The playback rate in the dictionary is the most trustworthy account of
+    // whether this is actually playing: it came from the source along with
+    // everything else here, at the same instant. The value passed in is a
+    // fallback for sources that omit it.
+    // The cast matters: in C a comparison yields `int`, so boxing it without
+    // one produces a number rather than a boolean, and the JSON carries 1
+    // instead of true.
+    NSNumber *rate = NMBNumber(info, kInfoPlaybackRate);
+    payload[@"isPlaying"] = rate != nil ? @((BOOL)(rate.doubleValue > 0)) : @(isPlaying);
 
-    NSString *trackKey = payload[@"trackIdentifier"] ?: title;
+    return payload;
+}
 
-    // The signature deliberately leaves out timestamp: it moves constantly, and
-    // the app interpolates position locally between real changes.
-    NSNumber *elapsed = payload[@"elapsedTime"];
-    NSString *signature = [NSString
-        stringWithFormat:@"%@|%@|%@|%@|%@|%d|%ld", payload[@"title"] ?: @"",
-                         payload[@"artist"] ?: @"", payload[@"album"] ?: @"", trackKey ?: @"",
-                         payload[@"bundleIdentifier"] ?: @"", isPlaying,
-                         (long)llround(elapsed.doubleValue)];
+#pragma mark - One-shot mode
 
-    if (![signature isEqualToString:gLastSignature]) {
-        gLastSignature = signature;
-        NMBEmit(@{@"type": @"state", @"payload": payload});
+/// Fetches the now-playing dictionary once, prints it, and exits.
+///
+/// This exists because `MRMediaRemoteGetNowPlayingInfo` hands its dictionary to
+/// a given process **once**. A long-lived process asking repeatedly gets
+/// nothing: measured at 13 asks and 0 replies across two track changes, while
+/// fresh processes answered correctly every time at the same moments. So each
+/// refresh gets a brand new process, and this is what it runs.
+///
+/// Nothing is registered for notifications here — this process exists for a few
+/// hundred milliseconds and only asks its one question.
+static void NMBFetchOnce(void) {
+    __block BOOL finished = NO;
+    __block NSDictionary *info = nil;
+    __block id client = nil;
+    __block BOOL haveInfo = NO;
+    __block BOOL haveClient = NO;
+
+    void (^complete)(void) = ^{
+        if (finished) {
+            return;
+        }
+        finished = YES;
+
+        NSDictionary *payload = NMBBuildPayload(info, client, gLastKnownIsPlaying);
+        if (payload != nil) {
+            NMBEmit(@{@"type": @"state", @"payload": payload});
+            NMBEmitArtwork(info, payload[@"trackIdentifier"] ?: payload[@"title"]);
+        } else if (client == nil) {
+            // Nothing is registered anywhere.
+            NMBEmit(@{@"type": @"idle"});
+        } else if (haveInfo && info.count > 0) {
+            // The daemon answered, and the source genuinely has nothing loaded.
+            NMBEmit(@{@"type": @"idle"});
+        } else {
+            // No answer at all. That is the normal outcome when the dictionary
+            // has not changed since the daemon last handed it over, and says
+            // nothing about whether something is playing — so it must not be
+            // reported as idle. The app keeps whatever it already had.
+            NMBEmit(@{@"type": @"nodata"});
+        }
+        exit(0);
+    };
+
+    void (^checkComplete)(void) = ^{
+        if (haveInfo && haveClient) {
+            complete();
+        }
+    };
+
+    MR.getInfo(dispatch_get_main_queue(), ^(NSDictionary *fetched) {
+        info = fetched;
+        haveInfo = YES;
+        checkComplete();
+    });
+
+    MR.getClient(dispatch_get_main_queue(), ^(id fetched) {
+        client = fetched;
+        haveClient = YES;
+        checkComplete();
+    });
+
+    if (MR.getIsPlaying != NULL) {
+        MR.getIsPlaying(dispatch_get_main_queue(), ^(BOOL playing) {
+            gLastKnownIsPlaying = playing;
+        });
     }
 
-    NMBEmitArtwork(info, trackKey);
+    // The dictionary is only handed over when it has changed since the daemon
+    // last delivered it, so an unanswered query is normal rather than a
+    // failure. Report whatever did arrive and quit.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+                       complete();
+                   });
+}
+
+#pragma mark - Streaming mode
+
+/// Reports who is playing and whether they are playing.
+///
+/// This carries no track metadata: the streaming process cannot obtain any
+/// after its first attempt. The app treats a change here as its cue to run a
+/// one-shot fetch.
+static void NMBEmitStatus(id client, BOOL isPlaying) {
+    NSString *bundleIdentifier = nil;
+    NSString *parentBundleIdentifier = nil;
+    NSString *appName = nil;
+    NMBClientIdentity(client, &bundleIdentifier, &parentBundleIdentifier, &appName);
+
+    if (client == nil) {
+        if (![gLastSignature isEqualToString:@"idle"]) {
+            gLastSignature = @"idle";
+            NMBEmit(@{@"type": @"idle"});
+        }
+        return;
+    }
+
+    NSString *signature = [NSString stringWithFormat:@"%@|%@|%d",
+                                                     bundleIdentifier ?: @"",
+                                                     parentBundleIdentifier ?: @"", isPlaying];
+    if ([signature isEqualToString:gLastSignature]) {
+        return;
+    }
+    gLastSignature = signature;
+
+    NSMutableDictionary *status = [NSMutableDictionary dictionary];
+    status[@"type"] = @"status";
+    status[@"isPlaying"] = @(isPlaying);
+    if (bundleIdentifier) status[@"bundleIdentifier"] = bundleIdentifier;
+    if (parentBundleIdentifier) status[@"parentBundleIdentifier"] = parentBundleIdentifier;
+    if (appName) status[@"appName"] = appName;
+
+    NMBEmit(status);
+}
+
+/// Asks who is playing. Unlike the dictionary, this answers every time, which
+/// is what makes it usable as the test for whether anything is playing at all.
+static void NMBRefreshStatus(void) {
+    MR.getClient(dispatch_get_main_queue(), ^(id client) {
+        NMBEmitStatus(client, gLastKnownIsPlaying);
+    });
+}
+
+/// Forces the next status to be sent even if nothing has changed.
+static void NMBInvalidateStatus(void) {
+    gLastSignature = nil;
+}
+
+/// When the last `changed` event was sent.
+static NSTimeInterval gLastChangeEmit = 0;
+
+/// Tells the app something moved, so it should re-read the dictionary.
+///
+/// This is separate from the status because a *track* change alters neither the
+/// client nor the playing state — status alone would report nothing new, and
+/// the app would never refetch. Notifications arrive in bursts of three to six
+/// for a single event, so they are coalesced.
+static void NMBEmitChanged(void) {
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if (now - gLastChangeEmit < 0.25) {
+        return;
+    }
+    gLastChangeEmit = now;
+    NMBEmit(@{@"type": @"changed"});
 }
 
 #pragma mark - Commands
@@ -465,9 +494,8 @@ static void NMBHandleCommand(NSDictionary *command) {
     NMBEmit(@{@"type": @"ack", @"cmd": name});
 
     if ([name isEqualToString:@"refresh"]) {
-        gLastSignature = nil;
-        gLastArtworkKey = nil;
-        NMBPublish();
+        NMBInvalidateStatus();
+        NMBRefreshStatus();
         return;
     }
 
@@ -478,9 +506,9 @@ static void NMBHandleCommand(NSDictionary *command) {
             // The source reports its new position asynchronously; nudge it.
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
-                gLastSignature = nil;
-                NMBPublish();
-            });
+                               NMBInvalidateStatus();
+                               NMBRefreshStatus();
+                           });
         }
         return;
     }
@@ -637,13 +665,12 @@ static void NMBNotificationCallback(CFNotificationCenterRef centre, void *observ
     id playing = info[kUserInfoIsPlaying];
     if ([playing isKindOfClass:NSNumber.class]) {
         gLastKnownIsPlaying = [playing boolValue];
-        gHaveKnownIsPlaying = YES;
     }
 
-    // A track change makes the daemon willing to hand over the dictionary
-    // again, so make sure a request is standing to receive it.
-    NMBRequestInfo();
-    NMBRefreshClient();
+    // Any MediaRemote notification means something moved. The app answers by
+    // running a one-shot fetch, which is the only way to get fresh metadata.
+    NMBRefreshStatus();
+    NMBEmitChanged();
 }
 
 static void NMBObserveNotifications(void) {
@@ -665,6 +692,12 @@ __attribute__((constructor)) static void NMBMain(void) {
             exit(1);
         }
 
+        // One-shot mode: fetch, print, exit. Never returns from dispatch_main.
+        if (getenv("NOTCH_BRIDGE_ONCE") != NULL) {
+            NMBFetchOnce();
+            dispatch_main();
+        }
+
         MR.registerForNotifications(dispatch_get_main_queue());
         if (MR.setWantsNotifications != NULL) {
             MR.setWantsNotifications(YES);
@@ -674,8 +707,19 @@ __attribute__((constructor)) static void NMBMain(void) {
         NMBWatchParent();
         NMBStartCommandReader();
 
+        // One reading of the playing state for this process. Like the
+        // dictionary, this query answers once — but once is enough to start
+        // from, and the notifications report every change after that.
+        if (MR.getIsPlaying != NULL) {
+            MR.getIsPlaying(dispatch_get_main_queue(), ^(BOOL playing) {
+                gLastKnownIsPlaying = playing;
+                NMBInvalidateStatus();
+                NMBRefreshStatus();
+            });
+        }
+
         NMBEmit(@{@"type": @"ready", @"parentPID": @(gParentPID), @"pid": @(getpid())});
-        NMBPublish();
+        NMBRefreshStatus();
 
         // Orphan check. Runs every second so a quit app does not leave this
         // process behind for any noticeable length of time.
@@ -688,6 +732,7 @@ __attribute__((constructor)) static void NMBMain(void) {
         });
         dispatch_resume(orphanCheck);
 
+        // Safety net for anything the notifications miss.
         dispatch_source_t poll =
             dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
         dispatch_source_set_timer(poll,
@@ -695,8 +740,7 @@ __attribute__((constructor)) static void NMBMain(void) {
                                                 (int64_t)(kPollInterval * NSEC_PER_SEC)),
                                   (uint64_t)(kPollInterval * NSEC_PER_SEC), NSEC_PER_SEC / 4);
         dispatch_source_set_event_handler(poll, ^{
-            NMBRefreshClient();
-            NMBRequestInfo();
+            NMBRefreshStatus();
         });
         dispatch_resume(poll);
 

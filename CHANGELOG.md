@@ -5,6 +5,49 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-09-17
+
+### Fixed
+
+- The island showed the correct track at launch and then never updated again.
+  `MRMediaRemoteGetNowPlayingInfo` hands its dictionary to a given process
+  **once**: a long-lived helper asking repeatedly was measured at 13 asks and 0
+  replies across two track changes, while fresh processes answered correctly at
+  the same moments. Metadata is now read by a short-lived helper spawned per
+  refresh, and the long-lived helper keeps to what it can do repeatedly —
+  watching notifications, reporting who is playing, and sending commands.
+- Track changes went unnoticed. A track change alters neither the source nor
+  the playing state, so a status carrying only those reported nothing new. The
+  helper now emits a `changed` event on every MediaRemote notification,
+  coalesced, and the app answers it by re-reading the dictionary.
+- Every track update was silently discarded. The helper wrote `"isPlaying":1`
+  rather than `true`, because in C a comparison yields `int` and boxing it
+  without a cast produces a number — and the strict decoder throws out the
+  *entire* payload over one mismatched field. The cast is fixed, booleans are
+  now decoded leniently, and a line that fails to decode is logged instead of
+  dropped in silence.
+- Artwork downloads cancelled one another. Repeat requests for the same cover
+  arrive routinely, and each one cancelled the last, so the artwork never
+  finished loading. An in-flight key now guards against that.
+- Playing state is taken from the notification-driven status rather than the
+  dictionary's playback rate, which is a snapshot from whenever the fetch landed
+  and reads as stopped immediately after a track change.
+
+### Changed
+
+- The island no longer appears at all unless there is real metadata to show.
+  The rule is the one macOS follows: if the system's own Now Playing control has
+  nothing in it, neither does the island — including on hover.
+- The status item menu is now just Settings and Quit. The island is the
+  interface, and macOS's own Now Playing control already covers transport.
+
+### Notes
+
+- A fetch is retried in a short burst (immediately, then at 600ms, 1.5s and
+  3.5s) and stops at the first that answers. The daemon needs a moment after a
+  notification before it will hand the new dictionary over, and an unanswered
+  fetch is normal rather than a failure.
+
 ## [0.14.0] - 2026-09-17
 
 ### Fixed

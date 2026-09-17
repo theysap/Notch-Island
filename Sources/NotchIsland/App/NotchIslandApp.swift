@@ -6,7 +6,7 @@ struct NotchIslandApp: App {
 
     var body: some Scene {
         MenuBarExtra(isInserted: menuBarIconBinding) {
-            MenuBarContent(media: appDelegate.media)
+            MenuBarContent()
         } label: {
             Image(nsImage: MenuBarIcon.image)
         }
@@ -24,28 +24,13 @@ struct NotchIslandApp: App {
     }
 }
 
-/// The menu behind the status item. Deliberately small: the island itself is
-/// the interface.
+/// The menu behind the status item.
+///
+/// Deliberately just the way in and the way out. The island is the interface,
+/// and macOS's own Now Playing control already covers transport from the menu
+/// bar, so repeating it here would only be clutter.
 private struct MenuBarContent: View {
-    let media: MediaController
-
     var body: some View {
-        if let track = media.nowPlaying {
-            Text(track.displayTitle)
-            if let subtitle = track.displaySubtitle {
-                Text(subtitle)
-            }
-            Divider()
-
-            Button(track.isPlaying ? "Pause" : "Play") { media.togglePlayPause() }
-            Button("Next") { media.nextTrack() }
-            Button("Previous") { media.previousTrack() }
-        } else {
-            Text("Nothing Playing")
-        }
-
-        Divider()
-
         SettingsLink {
             Text("Settings…")
         }

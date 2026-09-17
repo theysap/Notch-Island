@@ -32,6 +32,15 @@ final class MediaController {
     private var artworkKey: String?
     private var artworkDownload: Task<Void, Never>?
 
+    /// Key of the download currently running. Repeat requests for the same
+    /// artwork arrive routinely, and without this each one cancels the last —
+    /// so the cover never finished loading at all.
+    private var artworkInFlightKey: String?
+
+    /// The last status the streaming helper reported. Metadata arrives
+    /// separately, from one-shot fetches.
+    private var status: BridgeStatus?
+
     /// Decoded artwork, keyed by the URL it came from. Small, because it only
     /// ever holds what has recently been on screen.
     private var artworkCache: [URL: NSImage] = [:]
@@ -110,12 +119,30 @@ final class MediaController {
     // MARK: - Message handling
 
     private func handle(_ message: BridgeMessage) {
+        AppLog.media.info(
+            "bridge message: \(String(describing: message).prefix(60), privacy: .public)")
         switch message {
         case .ready:
             AppLog.media.info("Media bridge ready")
-            Task { [connection] in await connection.noteHealthy() }
+            Task { [connection] in
+                await connection.noteHealthy()
+                // First read of the dictionary. Anything already playing shows
+                // up here, if the daemon has an undelivered change to hand over.
+                await connection.fetchMetadata()
+            }
+
+        case .noData:
+            // A fetch that went unanswered. Keep what is already on screen.
+            break
+
+        case .changed:
+            Task { [connection] in await connection.fetchMetadata() }
+
+        case .status(let status):
+            apply(status)
 
         case .idle:
+            status = nil
             artworkDownload?.cancel()
             artworkDownload = nil
             nowPlaying = nil
@@ -139,9 +166,77 @@ final class MediaController {
         }
     }
 
+    /// Applies a status update, and asks for fresh metadata.
+    ///
+    /// Playback state arrives here rather than with the metadata, because the
+    /// streaming helper can see it change and cannot see the dictionary.
+    private func apply(_ status: BridgeStatus) {
+        let previous = self.status
+        self.status = status
+        AppLog.media.info(
+            "status: playing=\(status.isPlaying), source=\(status.sourceName ?? "none", privacy: .public)"
+        )
+
+        // A different application took over: what is on screen is now stale,
+        // and there is nothing to show until a fetch lands.
+        if let source = status.sourceBundleIdentifier,
+            let current = nowPlaying?.sourceBundleIdentifier,
+            source != current
+        {
+            nowPlaying = nil
+            artworkKey = nil
+        }
+
+        if var track = nowPlaying, track.isPlaying != status.isPlaying {
+            // Pin the playhead where it had got to before changing state, so a
+            // pause stops the clock instead of letting it run on.
+            track.reportedElapsed = track.position(at: .now)
+            track.reportedAt = .now
+            track.isPlaying = status.isPlaying
+            track.playbackRate = status.isPlaying ? max(track.playbackRate, 1) : 0
+            nowPlaying = track
+        }
+
+        // Anything that moved is worth re-reading the dictionary for; the
+        // daemon answers only when it has actually changed.
+        if previous != status {
+            Task { [connection] in await connection.fetchMetadata() }
+        }
+    }
+
     private func apply(_ track: NowPlaying) {
+        var track = track
+
+        if track.sourceName == nil {
+            track.sourceName = status?.sourceName
+        }
+
+        // Playing state comes from the status, which is driven by
+        // notifications and so is current. The dictionary's own rate is a
+        // snapshot from whenever the fetch happened to land — right after a
+        // track change it can still read as stopped — and writing that back
+        // into the status leaves the island showing paused over music that is
+        // playing.
+        if let status {
+            track.isPlaying = status.isPlaying
+            if !status.isPlaying {
+                track.playbackRate = 0
+            } else if track.playbackRate == 0 {
+                track.playbackRate = 1
+            }
+        }
+
+        // Nothing new: a second fetch for the same track lands routinely,
+        // because a change produces both a status and a `changed` event.
+        if let current = nowPlaying, current == track {
+            return
+        }
+
         let isNewTrack = nowPlaying?.trackIdentifier != track.trackIdentifier
         nowPlaying = track
+        AppLog.media.info(
+            "Now playing: \(track.displayTitle, privacy: .public) — playing=\(track.isPlaying), new=\(isNewTrack)"
+        )
 
         guard isNewTrack else { return }
 
@@ -150,6 +245,7 @@ final class MediaController {
         // with no visible gap, and if it never arrives the icon is already
         // there.
         artworkKey = nil
+        artworkInFlightKey = nil
         artworkDownload?.cancel()
         artworkDownload = nil
         applySourceIcon(for: track)
@@ -179,7 +275,7 @@ final class MediaController {
     /// download cannot arrive late and put the previous track's cover over the
     /// current one.
     private func fetchArtwork(key: String, from url: URL) {
-        guard key != artworkKey else { return }
+        guard key != artworkKey, key != artworkInFlightKey else { return }
 
         if let cached = artworkCache[url] {
             artworkKey = key
@@ -190,6 +286,7 @@ final class MediaController {
         }
 
         artworkDownload?.cancel()
+        artworkInFlightKey = key
         artworkDownload = Task { [weak self] in
             var image = await Self.download(url)
             if image == nil, let alternative = ArtworkURL.sizedAlternative(for: url) {
@@ -198,11 +295,13 @@ final class MediaController {
 
             guard let image else {
                 AppLog.media.notice(
-                    "Could not load artwork from \(url.host() ?? "source", privacy: .public)")
+                    "Could not load artwork (cancelled: \(Task.isCancelled)) from \(url.absoluteString, privacy: .public)"
+                )
                 return
             }
 
             guard !Task.isCancelled, let self else { return }
+            self.artworkInFlightKey = nil
             self.storeArtwork(image, for: url, key: key)
         }
     }

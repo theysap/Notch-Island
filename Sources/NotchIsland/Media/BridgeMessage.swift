@@ -1,9 +1,27 @@
 import Foundation
 
 /// One line of output from the media bridge.
+/// Who is playing and whether they are playing, with no track metadata.
+///
+/// The streaming helper cannot obtain metadata after its first attempt (see
+/// `NMBFetchOnce`), so this is all it can report. A change here is the app's
+/// cue to run a one-shot fetch.
+struct BridgeStatus: Sendable, Equatable {
+    var isPlaying: Bool
+    var sourceBundleIdentifier: String?
+    var sourceName: String?
+}
+
 enum BridgeMessage: Sendable {
     case ready
     case idle
+    /// A fetch that went unanswered. Says nothing about what is playing, so it
+    /// must never be treated as idle.
+    case noData
+    case status(BridgeStatus)
+    /// Something moved. The app answers this by re-reading the dictionary,
+    /// which is the only way to notice a track change.
+    case changed
     case state(NowPlaying)
     case artwork(key: String, mimeType: String, data: Data)
     /// Some sources publish a link to their artwork instead of the bytes.
@@ -18,11 +36,38 @@ enum BridgeMessage: Sendable {
 private struct BridgeEnvelope: Decodable {
     let type: String
     let payload: StatePayload?
+    let isPlaying: LooseBool?
+    let bundleIdentifier: String?
+    let parentBundleIdentifier: String?
+    let appName: String?
     let key: String?
     let mimeType: String?
     let data: String?
     let url: String?
     let message: String?
+}
+
+/// A boolean that may arrive as `true`, `1` or `1.0`.
+///
+/// MediaRemote's dictionaries are loosely typed, and the strict decoder throws
+/// out the *entire* payload over a single mismatched field — which is how a
+/// number where a boolean was expected once made every track update vanish
+/// without a word.
+private struct LooseBool: Decodable {
+    let value: Bool
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let boolean = try? container.decode(Bool.self) {
+            value = boolean
+        } else if let integer = try? container.decode(Int.self) {
+            value = integer != 0
+        } else if let number = try? container.decode(Double.self) {
+            value = number != 0
+        } else {
+            value = false
+        }
+    }
 }
 
 private struct StatePayload: Decodable {
@@ -34,13 +79,13 @@ private struct StatePayload: Decodable {
     let appName: String?
     let mediaType: String?
     let contentType: String?
-    let isMusicApp: Bool?
+    let isMusicApp: LooseBool?
     let duration: Double?
     let elapsedTime: Double?
     let playbackRate: Double?
     let timestamp: Double?
     let trackIdentifier: String?
-    let isPlaying: Bool?
+    let isPlaying: LooseBool?
 }
 
 extension BridgeMessage {
@@ -58,6 +103,22 @@ extension BridgeMessage {
 
         case "idle":
             return .idle
+
+        case "nodata":
+            return .noData
+
+        case "changed":
+            return .changed
+
+        case "status":
+            return .status(
+                BridgeStatus(
+                    isPlaying: envelope.isPlaying?.value ?? false,
+                    sourceBundleIdentifier: envelope.parentBundleIdentifier
+                        ?? envelope.bundleIdentifier,
+                    sourceName: envelope.appName
+                )
+            )
 
         case "error":
             return .failure(envelope.message ?? "unknown bridge error")
@@ -98,7 +159,7 @@ private extension StatePayload {
 
         let kind = MediaKind.infer(
             mediaType: mediaType ?? contentType,
-            isMusicApp: isMusicApp,
+            isMusicApp: isMusicApp?.value,
             bundleIdentifier: source,
             album: album,
             artist: artist,
@@ -108,7 +169,7 @@ private extension StatePayload {
         // A duration of zero means "unknown", not "zero seconds long".
         let resolvedDuration = (duration ?? 0) > 0 ? duration : nil
 
-        let rate = playbackRate ?? (isPlaying == true ? 1 : 0)
+        let rate = playbackRate ?? (isPlaying?.value == true ? 1 : 0)
         let reportedAt = timestamp.map { Date(timeIntervalSince1970: $0) } ?? .now
 
         return NowPlaying(
@@ -119,7 +180,7 @@ private extension StatePayload {
             sourceBundleIdentifier: source,
             sourceName: appName,
             duration: resolvedDuration,
-            isPlaying: isPlaying ?? (rate > 0),
+            isPlaying: isPlaying?.value ?? (rate > 0),
             reportedElapsed: elapsedTime ?? 0,
             reportedAt: reportedAt,
             playbackRate: rate,

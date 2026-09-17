@@ -51,6 +51,14 @@ struct NowPlaying: Sendable, Equatable {
         return min(max(value, 0), duration)
     }
 
+    /// Whether there is anything worth putting on screen.
+    ///
+    /// A registered source with no title, no artist and no duration is a player
+    /// sitting open with nothing loaded.
+    var hasDisplayableMetadata: Bool {
+        !title.isEmpty || !(artist ?? "").isEmpty || duration != nil
+    }
+
     /// What to show when a source publishes no title at all.
     var displayTitle: String {
         title.isEmpty ? (sourceName ?? "Now Playing") : title
