@@ -66,7 +66,13 @@ final class AppSettings {
     /// that is merely open, with no title and no duration, is not worth a strip
     /// of black across the menu bar — and hovering it should open nothing.
     func showsIsland(for track: NowPlaying?) -> Bool {
-        guard let track, track.hasDisplayableMetadata else { return false }
+        guard let track else { return false }
+
+        // Either there is something to show, or something is genuinely
+        // playing and the details are still on their way. A source that is
+        // merely open, with nothing loaded, shows nothing.
+        guard track.hasDisplayableMetadata || track.isPlaying else { return false }
+
         return track.isPlaying || !hidesWhenPaused
     }
 

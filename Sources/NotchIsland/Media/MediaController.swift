@@ -202,6 +202,42 @@ final class MediaController {
         if previous != status {
             Task { [connection] in await connection.fetchMetadata() }
         }
+
+        synthesisePlaceholderIfNeeded()
+    }
+
+    /// Puts *something* on screen while waiting for metadata.
+    ///
+    /// Starting the app part-way through a track leaves nothing to show: the
+    /// daemon hands the dictionary over only when it changes, and a track
+    /// already under way has not changed. Polling does not help — measured at
+    /// sixteen consecutive fetches over 25 seconds, every one unanswered.
+    ///
+    /// So the island shows the source it can see, and fills in properly at the
+    /// next track change. This only ever happens while something really is
+    /// playing; a source that is merely open still shows nothing at all.
+    private func synthesisePlaceholderIfNeeded() {
+        guard nowPlaying == nil, let status, status.isPlaying,
+            status.sourceBundleIdentifier != nil
+        else { return }
+
+        let placeholder = NowPlaying(
+            title: "",
+            artist: nil,
+            album: nil,
+            kind: .generic,
+            sourceBundleIdentifier: status.sourceBundleIdentifier,
+            sourceName: status.sourceName,
+            duration: nil,
+            isPlaying: true,
+            reportedElapsed: 0,
+            reportedAt: .now,
+            playbackRate: 1,
+            trackIdentifier: "placeholder"
+        )
+
+        nowPlaying = placeholder
+        applySourceIcon(for: placeholder)
     }
 
     private func apply(_ track: NowPlaying) {

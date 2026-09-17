@@ -5,6 +5,21 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.1] - 2026-09-17
+
+### Fixed
+
+- Starting the app part-way through a track left the notch empty. The daemon
+  hands the dictionary over only when it has changed, and a track already under
+  way has not — so there was nothing to show and nothing to wait for. Polling
+  does not help: measured at sixteen consecutive fetches over 25 seconds, every
+  one unanswered.
+
+  The island now shows the source it can see while the details are on their
+  way, and fills in properly at the next track change. This only happens while
+  something really is playing; a source that is merely open still shows nothing
+  at all, which was the point of the change in v0.15.0.
+
 ## [0.15.0] - 2026-09-17
 
 ### Fixed
