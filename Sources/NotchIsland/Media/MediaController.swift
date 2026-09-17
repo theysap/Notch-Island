@@ -17,6 +17,10 @@ final class MediaController {
     /// Safari among them — so the icon is a normal outcome, not a failure.
     private(set) var artwork: NSImage?
     private(set) var artworkIsSourceIcon = false
+
+    /// Icon of the application the audio is coming from, shown in the expanded
+    /// player regardless of whether real artwork was available.
+    private(set) var sourceIcon: NSImage?
     private(set) var palette: ArtworkPalette = .neutral
 
     /// Set while the user drags the progress bar, so incoming position reports
@@ -110,6 +114,7 @@ final class MediaController {
             artwork = nil
             artworkKey = nil
             artworkIsSourceIcon = false
+            sourceIcon = nil
             palette = .neutral
 
         case .state(let track):
@@ -141,6 +146,7 @@ final class MediaController {
         guard let identifier = track.sourceBundleIdentifier,
               let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier)
         else {
+            sourceIcon = nil
             artwork = nil
             artworkIsSourceIcon = false
             palette = .neutral
@@ -148,6 +154,7 @@ final class MediaController {
         }
 
         let icon = NSWorkspace.shared.icon(forFile: url.path)
+        sourceIcon = icon
         artwork = icon
         artworkIsSourceIcon = true
         palette = ArtworkPalette.extract(from: icon)
@@ -170,6 +177,7 @@ extension MediaController {
     static func preview(track: NowPlaying, artwork: NSImage?) -> MediaController {
         let controller = MediaController()
         controller.nowPlaying = track
+        controller.sourceIcon = artwork
         if let artwork {
             controller.artwork = artwork
             controller.palette = ArtworkPalette.extract(from: artwork)

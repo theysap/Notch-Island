@@ -5,6 +5,38 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-17
+
+### Added
+
+- The expanded mini player: artwork, title, artist and album, a draggable
+  progress bar with elapsed and remaining time, and previous / play-pause /
+  next controls.
+- Scrubbing that updates the playhead locally while dragging and only seeks the
+  source on release, rather than sending a command per pixel of movement.
+- `MarqueeText`, which scrolls a title that does not fit. Width is measured
+  against the real font before layout, so text that fits is drawn statically
+  with no timeline running at all.
+- A source badge in the strip left of the camera housing, showing which
+  application the audio is coming from. The visualiser occupies the strip to
+  the right, so it stays put as the island opens and closes.
+- Progress bars fall back to a static fill when the source reports no duration,
+  instead of implying a position that does not exist.
+
+### Changed
+
+- The equaliser bars are capped in width so they stay slim in the wider
+  expanded frame rather than becoming blocks.
+- Tightened the expanded panel from 186 to 172 points; the original left too
+  much empty space below the controls.
+
+### Notes
+
+- View-local state lives in an `@Observable` model rather than in `@State`.
+  `@State` became a macro in the macOS 27 SDK and its plugin ships only with
+  Xcode, not with the Command Line Tools this builds against. Every other
+  SwiftUI wrapper still works; `ObservableObject` was not brought back.
+
 ## [0.5.0] - 2026-09-17
 
 ### Added

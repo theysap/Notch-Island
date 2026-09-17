@@ -43,7 +43,7 @@ struct IslandRootView: View {
     @ViewBuilder
     private func content(for track: NowPlaying) -> some View {
         if isExpanded {
-            ExpandedPlayerView(media: media, layout: layout, track: track)
+            ExpandedPlayerView(media: media, presentation: presentation, track: track)
                 .transition(.opacity)
         } else {
             CompactIslandView(media: media, layout: layout, track: track)

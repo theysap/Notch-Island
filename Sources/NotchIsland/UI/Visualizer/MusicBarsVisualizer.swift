@@ -15,12 +15,20 @@ struct MusicBarsVisualizer: View {
 
     var body: some View {
         VisualizerCanvas(isPlaying: isPlaying) { context, size, time in
-            let barWidth = (size.width - Double(Self.bars - 1) * 2.0) / Double(Self.bars)
+            // Capped so the bars stay slim rather than turning into blocks when
+            // the frame is wider than it is tall.
+            let spacing = 2.0
+            let barWidth = min(
+                (size.width - Double(Self.bars - 1) * spacing) / Double(Self.bars),
+                3.2
+            )
             let radius = barWidth / 2
+            let totalWidth = barWidth * Double(Self.bars) + spacing * Double(Self.bars - 1)
+            let originX = (size.width - totalWidth) / 2
 
             for index in 0..<Self.bars {
                 let height = barHeight(index: index, time: time, maximum: size.height)
-                let x = Double(index) * (barWidth + 2.0)
+                let x = originX + Double(index) * (barWidth + spacing)
                 let rect = CGRect(
                     x: x,
                     y: (size.height - height) / 2,

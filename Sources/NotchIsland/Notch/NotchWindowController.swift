@@ -102,6 +102,9 @@ final class NotchWindowController {
         guard presentation.isExpanded != expanded else { return }
 
         presentation.isExpanded = expanded
+        if !expanded {
+            presentation.resetInteraction()
+        }
         refreshInteractivity()
     }
 
