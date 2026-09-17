@@ -15,12 +15,20 @@ import AppKit
 final class MenuBarSpacer {
     private var item: NSStatusItem?
 
+    /// Width currently reserved. State arrives about once a second, and
+    /// re-applying an unchanged reservation would rebuild the status item's
+    /// image every time for no reason.
+    private var reservedWidth: CGFloat?
+
     /// Sets the reserved width, or removes the reservation when `width` is nil.
     func reserve(width: CGFloat?) {
         guard let width, width > 0 else {
             remove()
             return
         }
+
+        guard reservedWidth != width else { return }
+        reservedWidth = width
 
         let item = existingItem()
         item.length = width
@@ -35,6 +43,7 @@ final class MenuBarSpacer {
     }
 
     func remove() {
+        reservedWidth = nil
         guard let item else { return }
         NSStatusBar.system.removeStatusItem(item)
         self.item = nil

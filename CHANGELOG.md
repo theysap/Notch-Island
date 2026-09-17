@@ -5,6 +5,19 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.2] - 2026-09-17
+
+### Fixed
+
+- The menu bar reservation was re-applied on every state update, rebuilding the
+  status item's image about once a second for an unchanged width.
+
+### Added
+
+- Artwork links that point at an image directory rather than an image are
+  retried with a size and format appended; there is no way to tell the two
+  apart by looking at the link.
+
 ## [0.13.0] - 2026-09-17
 
 ### Fixed
