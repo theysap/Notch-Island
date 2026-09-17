@@ -5,6 +5,32 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-17
+
+### Added
+
+- The island window: a non-activating floating panel pinned to the top of the
+  built-in display, above the menu bar and its status items, present on every
+  space and over full-screen apps.
+- `NotchMetrics`, which measures the notch from the system rather than assuming
+  a size, since it differs by model. Measured 208 × 37.5 pt on the development
+  machine.
+- `NotchShape`, the island outline: flush with the top of the screen, concave
+  shoulders where it meets the bezel, rounded along the bottom.
+- `HoverMonitor`, which opens the island when the pointer settles in the notch
+  strip and closes it shortly after the pointer leaves, with a dwell delay so
+  crossing the menu bar on the way elsewhere does not open the player.
+- Compact and expanded layouts, sized from the measured notch, with the camera
+  housing left clear between artwork and the activity indicator.
+- Click-through: the panel ignores the mouse entirely while collapsed, so the
+  menu bar underneath behaves normally, and only accepts clicks within the
+  island's own outline once open.
+
+### Notes
+
+- The island is only ever placed on a built-in display that physically has a
+  notch, and rebuilds itself when the screen configuration changes.
+
 ## [0.3.0] - 2026-09-17
 
 ### Added

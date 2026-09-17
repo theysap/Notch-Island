@@ -5,11 +5,13 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let media = MediaController()
+    private lazy var notchController = NotchWindowController(media: media)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // The island is not an ordinary window-and-Dock-icon application.
         NSApp.setActivationPolicy(.accessory)
         media.start()
+        notchController.start()
         AppLog.app.info("NotchIsland launched")
     }
 
