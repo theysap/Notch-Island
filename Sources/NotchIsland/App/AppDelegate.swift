@@ -6,7 +6,8 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let media = MediaController()
-    private lazy var notchController = NotchWindowController(media: media)
+    let settings = AppSettings()
+    private lazy var notchController = NotchWindowController(media: media, settings: settings)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // The island is not an ordinary window-and-Dock-icon application.

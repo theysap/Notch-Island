@@ -39,7 +39,11 @@ enum IslandPreviewRenderer {
                 presentation.isExpanded = expanded
 
                 let view = PreviewStage(layout: layout) {
-                    IslandRootView(media: controller, presentation: presentation)
+                    IslandRootView(
+                        media: controller,
+                        presentation: presentation,
+                        settings: AppSettings()
+                    )
                 }
 
                 let name = "\(sample.name)-\(expanded ? "expanded" : "compact").png"

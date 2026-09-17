@@ -5,6 +5,18 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-09-17
+
+### Added
+
+- Settings window: launch at login, menu bar icon visibility, and an option to
+  hide the island entirely while playback is paused.
+- Launch at login through `SMAppService`. A failed registration puts the toggle
+  back rather than leaving it showing a state that is not true — it cannot
+  succeed when the binary is run outside an application bundle.
+- Menu bar item with the current track and transport controls, whose symbol
+  follows the kind of media playing.
+
 ## [0.7.0] - 2026-09-17
 
 ### Added

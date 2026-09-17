@@ -5,19 +5,26 @@ import SwiftUI
 struct IslandRootView: View {
     let media: MediaController
     let presentation: IslandPresentation
+    let settings: AppSettings
 
     private var layout: IslandLayout { presentation.layout }
-    private var isExpanded: Bool { presentation.isExpanded && media.nowPlaying != nil }
+
+    /// The track to draw, or nil when the island should not be on screen.
+    private var visibleTrack: NowPlaying? {
+        settings.showsIsland(for: media.nowPlaying) ? media.nowPlaying : nil
+    }
+
+    private var isExpanded: Bool { presentation.isExpanded && visibleTrack != nil }
 
     var body: some View {
         VStack(spacing: 0) {
-            if let track = media.nowPlaying {
+            if let track = visibleTrack {
                 island(for: track)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(.bouncy(duration: 0.42, extraBounce: 0.08), value: isExpanded)
-        .animation(.smooth(duration: 0.34), value: media.nowPlaying == nil)
+        .animation(.smooth(duration: 0.34), value: visibleTrack == nil)
     }
 
     private func island(for track: NowPlaying) -> some View {

@@ -6,13 +6,15 @@ import SwiftUI
 @MainActor
 final class NotchWindowController {
     private let media: MediaController
+    private let settings: AppSettings
     private var presentation: IslandPresentation?
     private var panel: NotchPanel?
     private var hostingView: IslandHostingView<IslandRootView>?
     private var hoverMonitor: HoverMonitor?
 
-    init(media: MediaController) {
+    init(media: MediaController, settings: AppSettings) {
         self.media = media
+        self.settings = settings
     }
 
     func start() {
@@ -31,8 +33,9 @@ final class NotchWindowController {
         // Keep the hover zone and hit testing in step with what is playing:
         // with nothing playing there is nothing to hover.
         follow { [weak self] in
-            _ = self?.media.nowPlaying
-            self?.refreshInteractivity()
+            guard let self else { return }
+            _ = self.settings.showsIsland(for: self.media.nowPlaying)
+            self.refreshInteractivity()
         }
     }
 
@@ -50,7 +53,7 @@ final class NotchWindowController {
         self.presentation = presentation
 
         let panel = NotchPanel(contentRect: layout.windowFrame)
-        let rootView = IslandRootView(media: media, presentation: presentation)
+        let rootView = IslandRootView(media: media, presentation: presentation, settings: settings)
         let hostingView = IslandHostingView(rootView: rootView)
         hostingView.frame = CGRect(origin: .zero, size: layout.windowSize)
 
@@ -98,7 +101,9 @@ final class NotchWindowController {
     // MARK: - State
 
     private func setExpanded(_ expanded: Bool) {
-        guard let presentation, media.nowPlaying != nil || !expanded else { return }
+        guard let presentation,
+              settings.showsIsland(for: media.nowPlaying) || !expanded
+        else { return }
         guard presentation.isExpanded != expanded else { return }
 
         presentation.isExpanded = expanded
@@ -114,14 +119,15 @@ final class NotchWindowController {
     private func refreshInteractivity() {
         guard let presentation, let panel, let hostingView else { return }
 
-        let isPlaying = media.nowPlaying != nil
-        let expanded = presentation.isExpanded && isPlaying
+        let isVisible = settings.showsIsland(for: media.nowPlaying)
+        let expanded = presentation.isExpanded && isVisible
 
-        if !isPlaying && presentation.isExpanded {
+        if !isVisible && presentation.isExpanded {
             presentation.isExpanded = false
+            presentation.resetInteraction()
         }
 
-        hoverMonitor?.zone = isPlaying
+        hoverMonitor?.zone = isVisible
             ? presentation.layout.hoverZone(expanded: expanded)
             : .zero
 
