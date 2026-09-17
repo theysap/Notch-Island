@@ -8,18 +8,12 @@ struct NotchIslandApp: App {
         MenuBarExtra(isInserted: menuBarIconBinding) {
             MenuBarContent(media: appDelegate.media)
         } label: {
-            Image(systemName: menuBarSymbol)
+            Image(nsImage: MenuBarIcon.image)
         }
 
         Settings {
             SettingsView(settings: appDelegate.settings)
         }
-    }
-
-    /// The status item tracks whichever kind of media is playing, so the menu
-    /// bar says something even with the island collapsed.
-    private var menuBarSymbol: String {
-        appDelegate.media.nowPlaying?.kind.symbolName ?? "waveform"
     }
 
     private var menuBarIconBinding: Binding<Bool> {

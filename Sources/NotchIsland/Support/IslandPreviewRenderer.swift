@@ -30,6 +30,28 @@ enum IslandPreviewRenderer {
         return URL(fileURLWithPath: arguments[arguments.index(after: flag)])
     }
 
+    /// `--send-command <name>`: pushes one transport command through the real
+    /// app pipeline and quits. Separates "the command path is broken" from
+    /// "the click never reached the view", which are otherwise hard to tell
+    /// apart without a pointer.
+    static var requestedCommand: PlaybackCommand? {
+        let arguments = CommandLine.arguments
+        guard let flag = arguments.firstIndex(of: "--send-command"),
+            arguments.index(after: flag) < arguments.endIndex
+        else { return nil }
+
+        switch arguments[arguments.index(after: flag)] {
+        case "next": return .next
+        case "previous": return .previous
+        case "playpause": return .playPause
+        case "play": return .play
+        case "pause": return .pause
+        case let other where other.hasPrefix("seek:"):
+            return .seek(Double(other.dropFirst(5)) ?? 0)
+        default: return nil
+        }
+    }
+
     static func renderLive(into directory: URL, media: MediaController) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
@@ -128,9 +150,29 @@ enum IslandPreviewRenderer {
             }
         }
 
+        writeMenuBarIcon(to: directory.appending(path: "menu-bar-icon.png"))
+
         FileHandle.standardOutput.write(
             Data("Rendered \(Sample.all.count * 2) previews into \(directory.path)\n".utf8)
         )
+    }
+
+    /// The status item icon, drawn over a mid grey so the template's shape is
+    /// visible in the file.
+    private static func writeMenuBarIcon(to url: URL) {
+        let icon = MenuBarIcon.image
+        let scale = 8.0
+        let size = CGSize(width: icon.size.width * scale, height: icon.size.height * scale)
+
+        let view = ZStack {
+            Color(white: 0.55)
+            Image(nsImage: icon)
+                .resizable()
+                .frame(width: icon.size.width * scale, height: icon.size.height * scale)
+        }
+        .frame(width: size.width, height: size.height)
+
+        write(view: view, size: size, to: url)
     }
 
     private static func write(view: some View, size: CGSize, to url: URL) {

@@ -5,6 +5,46 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-09-17
+
+### Fixed
+
+- Nothing in the expanded player responded to the mouse. The transport buttons
+  highlighted on hover and did nothing when clicked, and the progress bar could
+  not be dragged. NotchIsland is an accessory application and never becomes
+  active, so *every* click on the island is a first click, and AppKit spends a
+  first click activating the window rather than delivering it — unless the view
+  says otherwise. The island's view now accepts first mouse.
+
+  Verified beforehand that the fault was in input and not in the command path:
+  a debug flag pushed `next` through the whole app pipeline twice and changed
+  the track both times.
+
+### Changed
+
+- The transport controls are centred on the progress bar rather than on the
+  island, so they line up with the timeline they belong to. Artwork grew to 92pt
+  and the panel was retuned around the taller column.
+- The menu bar icon is the island's own silhouette with the equaliser showing
+  through as negative space, drawn as a template image so macOS tints it for a
+  light or dark menu bar. It replaces the generic waveform symbol.
+
+### Added
+
+- Debug-only `--send-command <name>`, which pushes one transport command
+  through the real pipeline, separating a broken command path from a click that
+  never arrived.
+- The preview renderer writes the menu bar icon out too.
+
+### Notes
+
+- Seeking from the island is sent with `MRMediaRemoteSetElapsedTime`. A seek
+  made *inside* the source application is not reported back by any means
+  MediaRemote offers: it posts no notification, hands over no dictionary, and
+  the elapsed-time handler it advertises never fires. The island's playhead
+  therefore stays on its own reckoning until the next track change or
+  play/pause, when the position resyncs.
+
 ## [0.13.2] - 2026-09-17
 
 ### Fixed

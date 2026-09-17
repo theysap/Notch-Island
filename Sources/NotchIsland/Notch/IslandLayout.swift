@@ -25,7 +25,7 @@ struct IslandLayout: Equatable, Sendable {
     }
 
     var expandedSize: CGSize {
-        CGSize(width: 384 + shoulderRadius * 2, height: 172)
+        CGSize(width: 384 + shoulderRadius * 2, height: 168)
     }
 
     func size(expanded: Bool) -> CGSize {

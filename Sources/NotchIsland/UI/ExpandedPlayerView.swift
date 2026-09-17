@@ -19,14 +19,6 @@ struct ExpandedPlayerView: View {
         VStack(spacing: 0) {
             topStrip
             mainRow
-            TransportControls(
-                media: media,
-                presentation: presentation,
-                isPlaying: track.isPlaying,
-                tint: media.palette.accent
-            )
-            .padding(.top, 6)
-
             Spacer(minLength: 0)
         }
     }
@@ -57,7 +49,7 @@ struct ExpandedPlayerView: View {
     private var mainRow: some View {
         HStack(alignment: .top, spacing: 14) {
             ArtworkView(media: media, cornerRadius: 11)
-                .frame(width: 84, height: 84)
+                .frame(width: 92, height: 92)
                 .shadow(color: .black.opacity(0.5), radius: 8, y: 3)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -75,7 +67,7 @@ struct ExpandedPlayerView: View {
                     )
                 }
 
-                Spacer(minLength: 4)
+                Spacer(minLength: 2)
 
                 ScrubBar(
                     media: media,
@@ -83,8 +75,19 @@ struct ExpandedPlayerView: View {
                     track: track,
                     tint: media.palette.accent
                 )
+
+                // Centred on the progress bar rather than on the island, so
+                // the controls line up with the timeline they belong to.
+                TransportControls(
+                    media: media,
+                    presentation: presentation,
+                    isPlaying: track.isPlaying,
+                    tint: media.palette.accent
+                )
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 2)
             }
-            .frame(height: 84)
+            .frame(height: 104)
         }
         .padding(.horizontal, 18)
         .padding(.top, 4)

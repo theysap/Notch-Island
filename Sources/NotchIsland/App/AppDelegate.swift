@@ -22,6 +22,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        if let command = IslandPreviewRenderer.requestedCommand {
+            media.start()
+            Task {
+                // Long enough for the helper to come up.
+                try? await Task.sleep(for: .seconds(3))
+                self.media.send(command)
+                try? await Task.sleep(for: .seconds(2))
+                NSApp.terminate(nil)
+            }
+            return
+        }
+
         if let directory = IslandPreviewRenderer.requestedLiveDirectory {
             media.start()
             // Long enough for the bridge to start and answer.

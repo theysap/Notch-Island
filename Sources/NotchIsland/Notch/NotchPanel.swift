@@ -65,4 +65,15 @@ final class IslandHostingView<Content: View>: NSHostingView<Content> {
         guard interactiveRect.contains(point) else { return nil }
         return super.hitTest(point)
     }
+
+    /// Accepts the click that would otherwise only have activated the window.
+    ///
+    /// NotchIsland is an accessory application and never becomes active, so
+    /// *every* click on the island is a first click. Without this, AppKit
+    /// spends each one activating the window and delivers nothing to the view
+    /// underneath — the transport buttons and the progress bar look alive,
+    /// highlight on hover, and do nothing at all when clicked.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
 }
