@@ -20,7 +20,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         #endif
+        #if DEBUG
+        if MediaController.isSimulatingPlayback {
+            media.startSimulatedPlayback()
+        } else {
+            media.start()
+        }
+        #else
         media.start()
+        #endif
+
         notchController.start()
         AppLog.app.info("NotchIsland launched")
     }

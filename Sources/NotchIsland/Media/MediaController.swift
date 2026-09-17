@@ -171,6 +171,52 @@ final class MediaController {
 
 #if DEBUG
 extension MediaController {
+    /// True when the app was launched with `--simulate-playback`, which feeds
+    /// the island a synthetic track instead of starting the bridge.
+    ///
+    /// The island only appears when something is actually playing, which makes
+    /// the window layer — placement, hover, menu bar reservation — awkward to
+    /// exercise without commandeering the machine's audio. Debug builds only.
+    static var isSimulatingPlayback: Bool {
+        CommandLine.arguments.contains("--simulate-playback")
+    }
+
+    /// Publishes a synthetic track and advances it, standing in for the bridge.
+    func startSimulatedPlayback() {
+        let kinds: [MediaKind] = [.music, .video, .podcast]
+        var index = 0
+
+        func publish() {
+            let kind = kinds[index % kinds.count]
+            nowPlaying = NowPlaying(
+                title: "Simulated \(kind.rawValue.capitalized) Track",
+                artist: "NotchIsland",
+                album: "Debug",
+                kind: kind,
+                sourceBundleIdentifier: Bundle.main.bundleIdentifier,
+                sourceName: "Simulator",
+                duration: 240,
+                isPlaying: true,
+                reportedElapsed: 0,
+                reportedAt: .now,
+                playbackRate: 1,
+                trackIdentifier: "simulated-\(index)"
+            )
+            palette = ArtworkPalette(accent: .orange, background: .black)
+            index += 1
+        }
+
+        publish()
+        Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(20))
+                guard self != nil else { return }
+                publish()
+            }
+        }
+    }
+
+
     /// Builds a controller with fixed state, for the preview renderer. Lives
     /// here because the properties it sets are file-private for writing, and is
     /// compiled out of release builds.

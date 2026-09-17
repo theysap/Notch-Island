@@ -8,6 +8,7 @@ final class AppSettings {
     private enum Key {
         static let showsMenuBarIcon = "showsMenuBarIcon"
         static let hidesWhenPaused = "hidesWhenPaused"
+        static let reservesMenuBarSpace = "reservesMenuBarSpace"
     }
 
     @ObservationIgnored
@@ -28,6 +29,12 @@ final class AppSettings {
         didSet { defaults.set(hidesWhenPaused, forKey: Key.hidesWhenPaused) }
     }
 
+    /// Keeps the system's status items clear of the island by reserving menu
+    /// bar width while the island is on screen.
+    var reservesMenuBarSpace: Bool {
+        didSet { defaults.set(reservesMenuBarSpace, forKey: Key.reservesMenuBarSpace) }
+    }
+
     /// Mirrors the login item's registration, which the system owns; there is
     /// nothing of our own to persist.
     var launchAtLogin: Bool {
@@ -43,10 +50,12 @@ final class AppSettings {
         defaults.register(defaults: [
             Key.showsMenuBarIcon: true,
             Key.hidesWhenPaused: false,
+            Key.reservesMenuBarSpace: true,
         ])
 
         showsMenuBarIcon = defaults.bool(forKey: Key.showsMenuBarIcon)
         hidesWhenPaused = defaults.bool(forKey: Key.hidesWhenPaused)
+        reservesMenuBarSpace = defaults.bool(forKey: Key.reservesMenuBarSpace)
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 

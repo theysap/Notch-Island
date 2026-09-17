@@ -11,6 +11,7 @@ final class NotchWindowController {
     private var panel: NotchPanel?
     private var hostingView: IslandHostingView<IslandRootView>?
     private var hoverMonitor: HoverMonitor?
+    private let menuBarSpacer = MenuBarSpacer()
 
     init(media: MediaController, settings: AppSettings) {
         self.media = media
@@ -35,6 +36,7 @@ final class NotchWindowController {
         follow { [weak self] in
             guard let self else { return }
             _ = self.settings.showsIsland(for: self.media.nowPlaying)
+            _ = self.settings.reservesMenuBarSpace
             self.refreshInteractivity()
         }
     }
@@ -77,6 +79,7 @@ final class NotchWindowController {
     }
 
     private func teardown() {
+        menuBarSpacer.remove()
         hoverMonitor?.stop()
         hoverMonitor = nil
         panel?.orderOut(nil)
@@ -130,6 +133,14 @@ final class NotchWindowController {
         hoverMonitor?.zone = isVisible
             ? presentation.layout.hoverZone(expanded: expanded)
             : .zero
+
+        // Reserved only while the island is actually on screen, so the menu
+        // bar is not permanently narrowed when nothing is playing.
+        menuBarSpacer.reserve(
+            width: isVisible && settings.reservesMenuBarSpace
+                ? presentation.layout.menuBarReservation
+                : nil
+        )
 
         panel.ignoresMouseEvents = !expanded
         hostingView.interactiveRect = expanded

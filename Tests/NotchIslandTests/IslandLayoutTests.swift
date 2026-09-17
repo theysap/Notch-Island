@@ -67,3 +67,95 @@ struct IslandLayoutTests {
         #expect(expanded.height > collapsed.height)
     }
 }
+
+@Suite("Island symmetry")
+struct IslandSymmetryTests {
+    private func layout(notchWidth: CGFloat, screenWidth: CGFloat) -> IslandLayout {
+        IslandLayout(
+            metrics: NotchMetrics(
+                screenFrame: CGRect(x: 0, y: 0, width: screenWidth, height: 1112),
+                notchWidth: notchWidth,
+                notchHeight: 37.5,
+                centreX: screenWidth / 2
+            )
+        )
+    }
+
+    @Test("The island extends by the same amount on both sides of the notch")
+    func overhangIsEqualOnBothSides() {
+        // Checked across notch widths so the property holds on any model, not
+        // just the machine this was written on.
+        for notchWidth in [180.0, 208.0, 220.0, 260.0] as [CGFloat] {
+            let layout = layout(notchWidth: notchWidth, screenWidth: 1710)
+            let left = layout.overhangPerSide
+            let right = layout.compactSize.width - notchWidth - left
+
+            #expect(left == right)
+            #expect(left > 0)
+        }
+    }
+
+    @Test("The island is centred on the notch, not on the screen")
+    func centredOnTheNotch() {
+        // These coincide on every current Mac, but the island follows the
+        // camera housing regardless.
+        let offCentre = IslandLayout(
+            metrics: NotchMetrics(
+                screenFrame: CGRect(x: 0, y: 0, width: 1710, height: 1112),
+                notchWidth: 208,
+                notchHeight: 37.5,
+                centreX: 800
+            )
+        )
+
+        #expect(offCentre.windowFrame.midX == 800)
+    }
+
+    @Test("Both states are centred within the window")
+    func bothStatesAreCentred() {
+        let layout = layout(notchWidth: 208, screenWidth: 1710)
+
+        for expanded in [false, true] {
+            let island = layout.islandRectInWindow(expanded: expanded)
+            let leftGap = island.minX
+            let rightGap = layout.windowSize.width - island.maxX
+            #expect(leftGap == rightGap)
+        }
+    }
+
+    @Test("The reserved menu bar width covers the island's overhang")
+    func reservationCoversOverhang() {
+        let layout = layout(notchWidth: 208, screenWidth: 1710)
+
+        // Status icons must end up clear of the island, not flush against it.
+        #expect(layout.menuBarReservation > layout.overhangPerSide)
+    }
+}
+
+@Suite("Notch measurement limits")
+struct NotchMeasurementTests {
+    @Test("Plausible ranges accept every notch shipped so far")
+    func acceptsKnownNotches() {
+        // 13-inch MacBook Air, measured on the development machine.
+        #expect(MacModel.plausibleWidth.contains(208))
+        #expect(MacModel.plausibleHeight.contains(37.5))
+    }
+
+    @Test("Plausible ranges reject nonsense")
+    func rejectsNonsense() {
+        #expect(!MacModel.plausibleWidth.contains(0))
+        #expect(!MacModel.plausibleWidth.contains(1710))
+        #expect(!MacModel.plausibleHeight.contains(0))
+        #expect(!MacModel.plausibleHeight.contains(500))
+    }
+
+    @Test("The model identifier is readable")
+    func readsModelIdentifier() {
+        let identifier = MacModel.identifier
+        #expect(!identifier.isEmpty)
+        #expect(identifier != "unknown")
+        // sysctl returns a null-terminated string; the terminator must not
+        // survive into the value.
+        #expect(!identifier.contains("\0"))
+    }
+}

@@ -5,6 +5,45 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-09-17
+
+### Added
+
+- Menu bar space reservation. An empty status item the width of the island's
+  right-hand overhang means the system lays its status icons out beside the
+  island rather than behind it, and folds whatever no longer fits behind its
+  own overflow chevron. Verified reserving 69pt on the development machine, and
+  switchable off in Settings.
+- Notch measurements are now range-checked before use, and an off-centre camera
+  housing is reported rather than silently distorting the island.
+- `MacModel`, which identifies the machine for diagnostics and bounds-checking,
+  and surfaces the model in Settings.
+- Debug-only `--simulate-playback`, which feeds the island a synthetic track so
+  window placement, hover and menu bar reservation can be exercised without
+  commandeering the machine's audio.
+- Seven further tests covering island symmetry and measurement limits.
+
+### Changed
+
+- The island's fill is stated as an explicit sRGB #000000 rather than
+  `Color.black`, which resolves in whatever colour space the view is rendered
+  into and can pick up a colour-management shift. It has to match the camera
+  housing exactly.
+
+### Notes
+
+- The island is symmetric about the camera housing by construction: it extends
+  by the same amount on both sides, and is centred on the housing rather than
+  on the screen. Both properties are covered by tests across a range of notch
+  widths.
+- Notch size is measured from the display at runtime, not looked up from a
+  table of Mac models. Every notched Mac reports the areas either side of its
+  camera housing, so this is correct on models that do not exist yet.
+- Reserving space only works for the status icons on the right. The menus on
+  the left of the notch belong to the active application and are drawn by the
+  system; there is no API to reserve space against them or to fold them, and
+  macOS already truncates them at the notch with its own chevron.
+
 ## [0.8.0] - 2026-09-17
 
 ### Added

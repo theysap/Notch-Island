@@ -32,6 +32,20 @@ struct IslandLayout: Equatable, Sendable {
         expanded ? expandedSize : compactSize
     }
 
+    /// How far the collapsed island reaches past the camera housing on each
+    /// side. The island is symmetric about the housing, so this is the same
+    /// number left and right.
+    var overhangPerSide: CGFloat {
+        (compactSize.width - metrics.notchWidth) / 2
+    }
+
+    /// Menu bar width to reserve on the right, so status items are laid out
+    /// clear of the island rather than underneath it. A little more than the
+    /// overhang, so icons do not sit flush against the island's edge.
+    var menuBarReservation: CGFloat {
+        overhangPerSide + 6
+    }
+
     /// Room around the island for its shadow, and for the expanded state to
     /// grow into without the window having to be resized mid-animation.
     private var padding: CGFloat { 40 }
