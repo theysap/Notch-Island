@@ -25,8 +25,8 @@ struct NotchMetrics: Equatable, Sendable {
     static func builtInNotched() -> NotchMetrics? {
         for screen in NSScreen.screens {
             guard screen.isBuiltIn,
-                  let left = screen.auxiliaryTopLeftArea,
-                  let right = screen.auxiliaryTopRightArea
+                let left = screen.auxiliaryTopLeftArea,
+                let right = screen.auxiliaryTopRightArea
             else { continue }
 
             let width = screen.frame.width - left.width - right.width
@@ -39,7 +39,7 @@ struct NotchMetrics: Equatable, Sendable {
             // Refuse a nonsensical reading rather than drawing a malformed
             // island from it.
             guard MacModel.plausibleWidth.contains(width),
-                  MacModel.plausibleHeight.contains(height)
+                MacModel.plausibleHeight.contains(height)
             else {
                 AppLog.window.error(
                     "Ignoring implausible notch measurement \(width, format: .fixed(precision: 1))×\(height, format: .fixed(precision: 1)) on \(MacModel.identifier, privacy: .public)"

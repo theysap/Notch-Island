@@ -105,7 +105,7 @@ final class NotchWindowController {
 
     private func setExpanded(_ expanded: Bool) {
         guard let presentation,
-              settings.showsIsland(for: media.nowPlaying) || !expanded
+            settings.showsIsland(for: media.nowPlaying) || !expanded
         else { return }
         guard presentation.isExpanded != expanded else { return }
 
@@ -130,7 +130,8 @@ final class NotchWindowController {
             presentation.resetInteraction()
         }
 
-        hoverMonitor?.zone = isVisible
+        hoverMonitor?.zone =
+            isVisible
             ? presentation.layout.hoverZone(expanded: expanded)
             : .zero
 
@@ -143,7 +144,8 @@ final class NotchWindowController {
         )
 
         panel.ignoresMouseEvents = !expanded
-        hostingView.interactiveRect = expanded
+        hostingView.interactiveRect =
+            expanded
             ? presentation.layout.islandRectInWindow(expanded: true)
             : .zero
     }

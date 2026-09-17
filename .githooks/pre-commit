@@ -1,0 +1,61 @@
+#!/bin/bash
+#
+# Formatting, build and tests before a commit is allowed.
+#
+# Install with Scripts/install-hooks.sh. Skip a run with `git commit --no-verify`
+# when you genuinely need to, such as committing a work-in-progress on a branch.
+
+set -euo pipefail
+
+RED=$'\033[0;31m'
+YELLOW=$'\033[0;33m'
+GREEN=$'\033[0;32m'
+RESET=$'\033[0m'
+
+cd "$(git rev-parse --show-toplevel)"
+
+STAGED_SOURCES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(swift|m|h)$' || true)
+
+if [ -z "${STAGED_SOURCES}" ]; then
+    exit 0
+fi
+
+echo "Running pre-commit checks..."
+
+# 1. Formatting. Only the staged files are linted, so an unrelated file that
+#    predates the formatter cannot block an otherwise good commit.
+if command -v swift-format >/dev/null 2>&1 || swift format --version >/dev/null 2>&1; then
+    SWIFT_STAGED=$(echo "${STAGED_SOURCES}" | grep -E '\.swift$' || true)
+    if [ -n "${SWIFT_STAGED}" ]; then
+        if ! echo "${SWIFT_STAGED}" | xargs swift format lint --strict; then
+            echo "${RED}✗ Formatting${RESET}"
+            echo "  Fix with: swift format --in-place --recursive Sources Tests"
+            exit 1
+        fi
+        echo "${GREEN}✓${RESET} Formatting"
+    fi
+else
+    echo "${YELLOW}!${RESET} swift-format unavailable; skipping format check"
+fi
+
+# 2. Build.
+if ! swift build > /tmp/notch-precommit-build.log 2>&1; then
+    echo "${RED}✗ Build${RESET}"
+    grep -E "error:" /tmp/notch-precommit-build.log | head -20
+    exit 1
+fi
+echo "${GREEN}✓${RESET} Build"
+
+# 3. Tests.
+if ! ./Scripts/test.sh > /tmp/notch-precommit-test.log 2>&1; then
+    echo "${RED}✗ Tests${RESET}"
+    grep -E "✘|error:" /tmp/notch-precommit-test.log | head -20
+    exit 1
+fi
+echo "${GREEN}✓${RESET} $(grep -oE 'Test run with [0-9]+ tests' /tmp/notch-precommit-test.log | tail -1)"
+
+# 4. Changelog reminder. A warning rather than a refusal: not every source
+#    change is worth an entry, and that judgement is the author's.
+if ! git diff --cached --name-only | grep -q '^CHANGELOG.md$'; then
+    echo "${YELLOW}!${RESET} CHANGELOG.md is not staged"
+fi

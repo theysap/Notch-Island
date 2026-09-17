@@ -55,7 +55,8 @@ actor MediaBridgeConnection {
         } catch {
             // A broken pipe means the host died; the termination handler will
             // already be bringing it back.
-            AppLog.bridge.error("Failed to send \(String(describing: command)): \(error.localizedDescription)")
+            AppLog.bridge.error(
+                "Failed to send \(String(describing: command)): \(error.localizedDescription)")
         }
     }
 
@@ -102,9 +103,9 @@ actor MediaBridgeConnection {
         errors.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
             guard !chunk.isEmpty,
-                  let text = String(data: chunk, encoding: .utf8)?
-                      .trimmingCharacters(in: .whitespacesAndNewlines),
-                  !text.isEmpty
+                let text = String(data: chunk, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                !text.isEmpty
             else { return }
             AppLog.bridge.error("bridge stderr: \(text, privacy: .public)")
         }

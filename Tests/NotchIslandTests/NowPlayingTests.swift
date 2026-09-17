@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import NotchIsland
 
 @Suite("Playback position")

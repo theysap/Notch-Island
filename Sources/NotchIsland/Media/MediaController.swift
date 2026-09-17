@@ -144,7 +144,7 @@ final class MediaController {
 
     private func applySourceIcon(for track: NowPlaying) {
         guard let identifier = track.sourceBundleIdentifier,
-              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier)
+            let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier)
         else {
             sourceIcon = nil
             artwork = nil
@@ -215,7 +215,6 @@ extension MediaController {
             }
         }
     }
-
 
     /// Builds a controller with fixed state, for the preview renderer. Lives
     /// here because the properties it sets are file-private for writing, and is

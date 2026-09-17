@@ -14,7 +14,8 @@ struct VisualizerCanvas: View {
     private static let frameInterval = 1.0 / 30.0
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: Self.frameInterval, paused: !isPlaying)) { timeline in
+        TimelineView(.animation(minimumInterval: Self.frameInterval, paused: !isPlaying)) {
+            timeline in
             Canvas(opaque: false, rendersAsynchronously: false) { context, size in
                 var context = context
                 draw(&context, size, timeline.date.timeIntervalSinceReferenceDate)

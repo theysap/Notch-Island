@@ -38,7 +38,8 @@ struct IslandRootView: View {
             .fill(Theme.islandBackground)
             // The shape is what casts the shadow, so the shadow follows the
             // island's outline instead of the window's rectangle.
-            .shadow(color: .black.opacity(isExpanded ? 0.55 : 0.3), radius: isExpanded ? 22 : 8, y: 6)
+            .shadow(
+                color: .black.opacity(isExpanded ? 0.55 : 0.3), radius: isExpanded ? 22 : 8, y: 6)
 
             content(for: track)
                 .padding(.horizontal, layout.shoulderRadius)

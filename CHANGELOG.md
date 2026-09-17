@@ -5,6 +5,30 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-09-17
+
+### Added
+
+- `Scripts/build-app.sh`, which assembles `NotchIsland.app`: executable, bridge
+  library, host script, generated icon and `Info.plist`, signed with the
+  hardened runtime. Ad-hoc by default, or with a real identity when
+  `DEVELOPER_ID_APPLICATION` is set.
+- `Scripts/make-icon.swift`, which draws the application icon at every required
+  size. The icon is generated rather than committed as binary blobs, so it can
+  be changed in one place.
+- Git hooks: `pre-commit` checks formatting, builds and runs the tests, and
+  reminds about the changelog; `commit-msg` enforces the `vX.Y.Z` subject line.
+  Install with `Scripts/install-hooks.sh`.
+- GitHub Actions workflow running formatting, build, tests and a bundle build on
+  every push and pull request, uploading the built application as an artifact.
+- `.swift-format` configuration, and a formatting pass over the codebase.
+
+### Notes
+
+- The assembled bundle was verified end to end: launched from `dist/`, placed
+  the island, started the bridge from `Contents/Frameworks` under the hardened
+  runtime, reserved menu bar width, and left no helper process behind on quit.
+
 ## [0.9.0] - 2026-09-17
 
 ### Added

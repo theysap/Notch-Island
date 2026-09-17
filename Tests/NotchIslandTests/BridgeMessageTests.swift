@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import NotchIsland
 
 @Suite("Bridge wire format")
@@ -7,11 +8,11 @@ struct BridgeMessageTests {
     @Test("A state message becomes a now-playing snapshot")
     func decodesState() throws {
         let json = """
-        {"type":"state","payload":{"title":"Bad Boyz","artist":"Release - Topic",\
-        "isPlaying":true,"appName":"Safari","duration":227.881,"elapsedTime":12.5,\
-        "playbackRate":1,"timestamp":1789650250.2,"trackIdentifier":"3095740",\
-        "bundleIdentifier":"com.apple.WebKit.GPU","parentBundleIdentifier":"com.apple.Safari"}}
-        """
+            {"type":"state","payload":{"title":"Bad Boyz","artist":"Release - Topic",\
+            "isPlaying":true,"appName":"Safari","duration":227.881,"elapsedTime":12.5,\
+            "playbackRate":1,"timestamp":1789650250.2,"trackIdentifier":"3095740",\
+            "bundleIdentifier":"com.apple.WebKit.GPU","parentBundleIdentifier":"com.apple.Safari"}}
+            """
 
         let message = try #require(BridgeMessage.decode(line: Data(json.utf8)))
         guard case .state(let track) = message else {
@@ -31,7 +32,8 @@ struct BridgeMessageTests {
 
     @Test("A duration of zero means unknown, not a zero-length track")
     func zeroDurationIsUnknown() throws {
-        let json = #"{"type":"state","payload":{"title":"Live Radio","duration":0,"isPlaying":true}}"#
+        let json =
+            #"{"type":"state","payload":{"title":"Live Radio","duration":0,"isPlaying":true}}"#
         let message = try #require(BridgeMessage.decode(line: Data(json.utf8)))
         guard case .state(let track) = message else {
             Issue.record("expected a state message")
@@ -46,8 +48,8 @@ struct BridgeMessageTests {
     func decodesArtwork() throws {
         let bytes = Data([0x89, 0x50, 0x4E, 0x47])
         let json = """
-        {"type":"artwork","key":"track|1|4","mimeType":"image/png","data":"\(bytes.base64EncodedString())"}
-        """
+            {"type":"artwork","key":"track|1|4","mimeType":"image/png","data":"\(bytes.base64EncodedString())"}
+            """
 
         let message = try #require(BridgeMessage.decode(line: Data(json.utf8)))
         guard case .artwork(let key, let mimeType, let data) = message else {

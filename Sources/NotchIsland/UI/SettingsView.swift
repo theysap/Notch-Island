@@ -19,7 +19,8 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("Keep menu bar icons clear of the island", isOn: $settings.reservesMenuBarSpace)
+                Toggle(
+                    "Keep menu bar icons clear of the island", isOn: $settings.reservesMenuBarSpace)
             } footer: {
                 Text(
                     """

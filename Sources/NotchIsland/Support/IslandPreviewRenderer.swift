@@ -13,7 +13,7 @@ enum IslandPreviewRenderer {
     static var requestedDirectory: URL? {
         let arguments = CommandLine.arguments
         guard let flag = arguments.firstIndex(of: "--render-previews"),
-              arguments.index(after: flag) < arguments.endIndex
+            arguments.index(after: flag) < arguments.endIndex
         else { return nil }
         return URL(fileURLWithPath: arguments[arguments.index(after: flag)])
     }
@@ -21,12 +21,14 @@ enum IslandPreviewRenderer {
     static func render(into directory: URL) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let metrics = NotchMetrics.builtInNotched() ?? NotchMetrics(
-            screenFrame: CGRect(x: 0, y: 0, width: 1710, height: 1112),
-            notchWidth: 208,
-            notchHeight: 37.5,
-            centreX: 855
-        )
+        let metrics =
+            NotchMetrics.builtInNotched()
+            ?? NotchMetrics(
+                screenFrame: CGRect(x: 0, y: 0, width: 1710, height: 1112),
+                notchWidth: 208,
+                notchHeight: 37.5,
+                centreX: 855
+            )
         let layout = IslandLayout(metrics: metrics)
 
         for sample in Sample.all {
@@ -61,9 +63,9 @@ enum IslandPreviewRenderer {
         renderer.scale = 2
 
         guard let image = renderer.cgImage,
-              let destination = CGImageDestinationCreateWithURL(
-                  url as CFURL, "public.png" as CFString, 1, nil
-              )
+            let destination = CGImageDestinationCreateWithURL(
+                url as CFURL, "public.png" as CFString, 1, nil
+            )
         else { return }
 
         CGImageDestinationAddImage(destination, image, nil)
@@ -79,8 +81,10 @@ enum IslandPreviewRenderer {
         var body: some View {
             ZStack(alignment: .top) {
                 LinearGradient(
-                    colors: [Color(red: 0.22, green: 0.26, blue: 0.34),
-                             Color(red: 0.42, green: 0.34, blue: 0.46)],
+                    colors: [
+                        Color(red: 0.22, green: 0.26, blue: 0.34),
+                        Color(red: 0.42, green: 0.34, blue: 0.46),
+                    ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )

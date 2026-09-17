@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test
+    # NotchIsland targets macOS 26, so the runner image needs an SDK at least
+    # that new. Pin this to a specific image if `macos-latest` moves backwards.
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcrun --show-sdk-version
+
+      - name: Check formatting
+        run: swift format lint --recursive --strict Sources Tests
+
+      - name: Build
+        run: swift build -c release
+
+      - name: Test
+        run: ./Scripts/test.sh
+
+      - name: Build application bundle
+        run: ./Scripts/build-app.sh
+
+      - name: Upload application
+        uses: actions/upload-artifact@v4
+        with:
+          name: NotchIsland-app
+          path: dist/NotchIsland.app
+          if-no-files-found: error

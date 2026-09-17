@@ -52,8 +52,9 @@ struct VideoPlayheadVisualizer: View {
             )
 
             // A soft halo so the head reads at this size against black.
-            context.fill(Path(ellipseIn: head.insetBy(dx: -1.6, dy: -1.6)),
-                         with: .color(tint.opacity(0.28)))
+            context.fill(
+                Path(ellipseIn: head.insetBy(dx: -1.6, dy: -1.6)),
+                with: .color(tint.opacity(0.28)))
             context.fill(Path(ellipseIn: head), with: .color(tint.opacity(isPlaying ? 1 : 0.5)))
         }
     }

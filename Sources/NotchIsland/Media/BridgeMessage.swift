@@ -58,8 +58,8 @@ extension BridgeMessage {
 
         case "artwork":
             guard let key = envelope.key,
-                  let encoded = envelope.data,
-                  let bytes = Data(base64Encoded: encoded), !bytes.isEmpty
+                let encoded = envelope.data,
+                let bytes = Data(base64Encoded: encoded), !bytes.isEmpty
             else { return nil }
             return .artwork(
                 key: key,
