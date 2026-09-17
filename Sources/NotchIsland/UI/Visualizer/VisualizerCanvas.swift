@@ -21,6 +21,5 @@ struct VisualizerCanvas: View {
                 draw(&context, size, timeline.date.timeIntervalSinceReferenceDate)
             }
         }
-        .drawingGroup()
     }
 }

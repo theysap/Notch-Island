@@ -46,6 +46,11 @@ struct IslandRootView: View {
         }
         .frame(width: size.width, height: size.height)
         .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .top)))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(
+            "\(track.kind.accessibilityDescription): \(track.displayTitle)"
+                + (track.displaySubtitle.map { ", \($0)" } ?? "")
+        )
     }
 
     @ViewBuilder

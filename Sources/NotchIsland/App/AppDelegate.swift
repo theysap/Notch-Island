@@ -13,10 +13,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The island is not an ordinary window-and-Dock-icon application.
         NSApp.setActivationPolicy(.accessory)
 
+        guard !terminateIfAlreadyRunning() else { return }
+
         #if DEBUG
         if let directory = IslandPreviewRenderer.requestedDirectory {
             IslandPreviewRenderer.render(into: directory)
             NSApp.terminate(nil)
+            return
+        }
+
+        if let directory = IslandPreviewRenderer.requestedLiveDirectory {
+            media.start()
+            // Long enough for the bridge to start and answer.
+            Task {
+                try? await Task.sleep(for: .seconds(6))
+                IslandPreviewRenderer.renderLive(into: directory, media: media)
+                NSApp.terminate(nil)
+            }
             return
         }
         #endif
@@ -36,5 +49,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         media.stop()
+    }
+
+    /// Quits immediately if another copy is already running.
+    ///
+    /// Two islands would sit on top of each other in the same notch, each with
+    /// its own helper process and its own menu bar reservation.
+    private func terminateIfAlreadyRunning() -> Bool {
+        guard let identifier = Bundle.main.bundleIdentifier else { return false }
+
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+            .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+
+        guard !others.isEmpty else { return false }
+
+        AppLog.app.notice("Another copy of NotchIsland is already running; quitting")
+        others.first?.activate()
+        NSApp.terminate(nil)
+        return true
     }
 }

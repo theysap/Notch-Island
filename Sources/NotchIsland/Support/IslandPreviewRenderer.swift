@@ -18,6 +18,78 @@ enum IslandPreviewRenderer {
         return URL(fileURLWithPath: arguments[arguments.index(after: flag)])
     }
 
+    /// `--render-live <directory>`: renders whatever is actually playing right
+    /// now, through the real pipeline rather than from sample data. This is how
+    /// a layout problem that only shows up with live metadata gets diagnosed
+    /// without screen-recording permission.
+    static var requestedLiveDirectory: URL? {
+        let arguments = CommandLine.arguments
+        guard let flag = arguments.firstIndex(of: "--render-live"),
+            arguments.index(after: flag) < arguments.endIndex
+        else { return nil }
+        return URL(fileURLWithPath: arguments[arguments.index(after: flag)])
+    }
+
+    static func renderLive(into directory: URL, media: MediaController) {
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let metrics = NotchMetrics.builtInNotched() ?? fallbackMetrics
+        let layout = IslandLayout(metrics: metrics)
+
+        let description = liveDescription(media: media)
+
+        try? Data(description.utf8).write(to: directory.appending(path: "live-state.txt"))
+        FileHandle.standardOutput.write(Data((description + "\n").utf8))
+
+        for expanded in [false, true] {
+            let presentation = IslandPresentation(layout: layout)
+            presentation.isExpanded = expanded
+
+            let view = PreviewStage(layout: layout) {
+                IslandRootView(media: media, presentation: presentation, settings: AppSettings())
+            }
+
+            let name = "live-\(expanded ? "expanded" : "compact").png"
+            write(view: view, size: layout.windowSize, to: directory.appending(path: name))
+        }
+    }
+
+    /// Written alongside the images so the rendered state can be compared
+    /// against what the pipeline actually delivered.
+    private static func liveDescription(media: MediaController) -> String {
+        guard let track = media.nowPlaying else { return "nothing playing" }
+
+        let artwork: String
+        if media.artwork == nil {
+            artwork = "(none)"
+        } else if media.artworkIsSourceIcon {
+            artwork = "application icon"
+        } else {
+            artwork = "real artwork"
+        }
+
+        var lines: [String] = []
+        lines.append("title: " + (track.title.isEmpty ? "(empty)" : track.title))
+        lines.append("artist: " + (track.artist ?? "(none)"))
+        lines.append("album: " + (track.album ?? "(none)"))
+        lines.append("kind: " + track.kind.rawValue)
+        lines.append("source: " + (track.sourceName ?? "(none)"))
+        lines.append("bundle: " + (track.sourceBundleIdentifier ?? "(none)"))
+        lines.append("duration: " + (track.duration.map { String($0) } ?? "(none)"))
+        lines.append("isPlaying: " + String(track.isPlaying))
+        lines.append("artwork: " + artwork)
+        return lines.joined(separator: "\n")
+    }
+
+    private static var fallbackMetrics: NotchMetrics {
+        NotchMetrics(
+            screenFrame: CGRect(x: 0, y: 0, width: 1710, height: 1112),
+            notchWidth: 208,
+            notchHeight: 37.5,
+            centreX: 855
+        )
+    }
+
     static func render(into directory: URL) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
@@ -39,6 +111,9 @@ enum IslandPreviewRenderer {
                 )
                 let presentation = IslandPresentation(layout: layout)
                 presentation.isExpanded = expanded
+                // Renders the scrubber in its hovered state, which is when the
+                // knob is shown.
+                presentation.isScrubBarHovered = expanded
 
                 let view = PreviewStage(layout: layout) {
                     IslandRootView(
@@ -141,6 +216,21 @@ enum IslandPreviewRenderer {
                 ),
                 artwork: artwork(from: [.systemPurple, .systemIndigo])
             ),
+            // Reproduces what Apple Music publishes while stopped: a
+            // registered client with no metadata at all.
+            Sample(
+                name: "empty-metadata",
+                track: make(
+                    title: "",
+                    artist: nil,
+                    album: nil,
+                    kind: .music,
+                    duration: 0,
+                    elapsed: 0,
+                    isPlaying: false
+                ),
+                artwork: artwork(from: [.systemRed, .systemPink])
+            ),
             Sample(
                 name: "paused",
                 track: make(
@@ -165,14 +255,16 @@ enum IslandPreviewRenderer {
             elapsed: TimeInterval,
             isPlaying: Bool = true
         ) -> NowPlaying {
-            NowPlaying(
+            // Zero means unknown, matching how the bridge reports it.
+            let resolvedDuration: TimeInterval? = duration > 0 ? duration : nil
+            return NowPlaying(
                 title: title,
                 artist: artist,
                 album: album,
                 kind: kind,
                 sourceBundleIdentifier: nil,
                 sourceName: "Preview",
-                duration: duration,
+                duration: resolvedDuration,
                 isPlaying: isPlaying,
                 reportedElapsed: elapsed,
                 reportedAt: .now,

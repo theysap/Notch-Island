@@ -270,99 +270,200 @@ static void NMBEmitArtwork(NSDictionary *info, NSString *trackKey) {
     });
 }
 
+/// Last info dictionary that actually arrived.
+///
+/// `MRMediaRemoteGetNowPlayingInfo` does not always call back — observed on
+/// macOS 27 with Apple Music playing, where the client and playing-state
+/// queries answered immediately and the info query never did. Reusing the last
+/// dictionary keeps the title and artwork on screen through those gaps instead
+/// of blanking the island.
+static NSDictionary *gCachedInfo = nil;
+
+/// Set while a publish is waiting on its callbacks, so a burst of
+/// notifications does not start a dozen overlapping fetches.
+static BOOL gPublishInFlight = NO;
+
+/// How long to wait for the three queries before publishing what did arrive.
+static const NSTimeInterval kPublishDeadline = 0.6;
+
+static void NMBFinish(NSDictionary *info, id client, BOOL isPlaying);
+
 /// Fetches the current state and, if it differs from what the app already has,
 /// emits it.
+///
+/// The three queries are issued together rather than nested, and a deadline
+/// publishes whatever has arrived. Nesting them meant one query that never
+/// answered stopped the island updating at all.
 static void NMBPublish(void) {
-    MR.getInfo(dispatch_get_main_queue(), ^(NSDictionary *info) {
-        MR.getClient(dispatch_get_main_queue(), ^(id client) {
-            NSMutableDictionary *payload = [NSMutableDictionary dictionary];
+    if (gPublishInFlight) {
+        return;
+    }
+    gPublishInFlight = YES;
 
-            NSString *title = NMBString(info, kInfoTitle);
-            NSString *bundleIdentifier = nil;
-            NSString *parentBundleIdentifier = nil;
-            NSString *appName = nil;
+    // Everything below runs on the main queue, so these need no locking.
+    __block NSDictionary *info = nil;
+    __block id client = nil;
+    __block BOOL isPlaying = NO;
 
-            if (client != nil) {
-                if (MR.clientBundleIdentifier != NULL) {
-                    bundleIdentifier = MR.clientBundleIdentifier(client);
-                }
-                if (MR.clientParentBundleIdentifier != NULL) {
-                    parentBundleIdentifier = MR.clientParentBundleIdentifier(client);
-                }
-                if (MR.clientDisplayName != NULL) {
-                    appName = MR.clientDisplayName(client);
-                }
-            }
+    __block BOOL haveInfo = NO;
+    __block BOOL haveClient = NO;
+    __block BOOL havePlaying = NO;
+    __block BOOL finished = NO;
 
-            // No title and no source means nothing is loaded anywhere. The app
-            // treats this as "hide the island".
-            if (title == nil && bundleIdentifier == nil && parentBundleIdentifier == nil) {
-                if (![gLastSignature isEqualToString:@"idle"]) {
-                    gLastSignature = @"idle";
-                    gLastArtworkKey = nil;
-                    gArtworkPendingTrack = nil;
-                    NMBEmit(@{@"type": @"idle"});
-                }
-                return;
-            }
+    void (^complete)(void) = ^{
+        if (finished) {
+            return;
+        }
+        finished = YES;
+        gPublishInFlight = NO;
+        NMBFinish(haveInfo ? info : nil, haveClient ? client : nil, isPlaying);
+    };
 
-            payload[@"title"] = title ?: @"";
-            if (NMBString(info, kInfoArtist)) payload[@"artist"] = NMBString(info, kInfoArtist);
-            if (NMBString(info, kInfoAlbum)) payload[@"album"] = NMBString(info, kInfoAlbum);
-            if (bundleIdentifier) payload[@"bundleIdentifier"] = bundleIdentifier;
-            if (parentBundleIdentifier) payload[@"parentBundleIdentifier"] = parentBundleIdentifier;
-            if (appName) payload[@"appName"] = appName;
-            if (NMBMediaType(info)) payload[@"mediaType"] = NMBMediaType(info);
-            if (NMBNumber(info, kInfoIsMusicApp)) payload[@"isMusicApp"] = NMBNumber(info, kInfoIsMusicApp);
-            if (NMBNumber(info, kInfoDuration)) payload[@"duration"] = NMBNumber(info, kInfoDuration);
-            if (NMBNumber(info, kInfoElapsed)) payload[@"elapsedTime"] = NMBNumber(info, kInfoElapsed);
-            if (NMBNumber(info, kInfoPlaybackRate)) payload[@"playbackRate"] = NMBNumber(info, kInfoPlaybackRate);
-            if (NMBTimestamp(info, kInfoTimestamp)) payload[@"timestamp"] = NMBTimestamp(info, kInfoTimestamp);
-            if (NMBString(info, kInfoUniqueIdentifier)) {
-                payload[@"trackIdentifier"] = NMBString(info, kInfoUniqueIdentifier);
-            } else if (NMBNumber(info, kInfoUniqueIdentifier)) {
-                payload[@"trackIdentifier"] = [NMBNumber(info, kInfoUniqueIdentifier) stringValue];
-            }
+    void (^checkComplete)(void) = ^{
+        if (haveInfo && haveClient && havePlaying) {
+            complete();
+        }
+    };
 
-            NSString *trackKey = payload[@"trackIdentifier"] ?: title;
-
-            void (^finish)(BOOL) = ^(BOOL isPlaying) {
-                payload[@"isPlaying"] = @(isPlaying);
-
-                // The signature deliberately leaves out elapsed time and
-                // timestamp: those move constantly, and the app interpolates
-                // position locally between real changes.
-                NSString *signature = [NSString stringWithFormat:@"%@|%@|%@|%@|%@|%d",
-                                       payload[@"title"] ?: @"",
-                                       payload[@"artist"] ?: @"",
-                                       payload[@"album"] ?: @"",
-                                       trackKey ?: @"",
-                                       payload[@"bundleIdentifier"] ?: @"",
-                                       isPlaying];
-
-                // Position still has to be resent when playback is scrubbed
-                // while paused, so compare the rounded elapsed time too.
-                NSNumber *elapsed = payload[@"elapsedTime"];
-                NSString *fullSignature = [NSString stringWithFormat:@"%@|%ld", signature,
-                                           (long)llround(elapsed.doubleValue)];
-
-                if (![fullSignature isEqualToString:gLastSignature]) {
-                    gLastSignature = fullSignature;
-                    NMBEmit(@{@"type": @"state", @"payload": payload});
-                }
-
-                NMBEmitArtwork(info, trackKey);
-            };
-
-            if (MR.getIsPlaying != NULL) {
-                MR.getIsPlaying(dispatch_get_main_queue(), ^(BOOL isPlaying) {
-                    finish(isPlaying);
-                });
-            } else {
-                finish(NMBNumber(info, kInfoPlaybackRate).doubleValue > 0.0);
-            }
-        });
+    MR.getInfo(dispatch_get_main_queue(), ^(NSDictionary *fetched) {
+        info = fetched;
+        haveInfo = YES;
+        checkComplete();
     });
+
+    MR.getClient(dispatch_get_main_queue(), ^(id fetched) {
+        client = fetched;
+        haveClient = YES;
+        checkComplete();
+    });
+
+    if (MR.getIsPlaying != NULL) {
+        MR.getIsPlaying(dispatch_get_main_queue(), ^(BOOL playing) {
+            isPlaying = playing;
+            havePlaying = YES;
+            checkComplete();
+        });
+    } else {
+        havePlaying = YES;
+    }
+
+    dispatch_after(
+        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kPublishDeadline * NSEC_PER_SEC)),
+        dispatch_get_main_queue(), ^{
+            complete();
+        });
+}
+
+static void NMBFinish(NSDictionary *info, id client, BOOL isPlaying) {
+    NSString *bundleIdentifier = nil;
+    NSString *parentBundleIdentifier = nil;
+    NSString *appName = nil;
+
+    if (client != nil) {
+        if (MR.clientBundleIdentifier != NULL) {
+            bundleIdentifier = MR.clientBundleIdentifier(client);
+        }
+        if (MR.clientParentBundleIdentifier != NULL) {
+            parentBundleIdentifier = MR.clientParentBundleIdentifier(client);
+        }
+        if (MR.clientDisplayName != NULL) {
+            appName = MR.clientDisplayName(client);
+        }
+    }
+
+    // Nothing is registered anywhere: the island hides.
+    if (client == nil && info.count == 0) {
+        if (![gLastSignature isEqualToString:@"idle"]) {
+            gLastSignature = @"idle";
+            gLastArtworkKey = nil;
+            gArtworkPendingTrack = nil;
+            gCachedInfo = nil;
+            NMBEmit(@{@"type": @"idle"});
+        }
+        return;
+    }
+
+    // A fetch that came back empty while a client is still registered means the
+    // query failed, not that the track vanished.
+    if (info.count > 0) {
+        gCachedInfo = info;
+    } else {
+        info = gCachedInfo;
+    }
+
+    NSString *title = NMBString(info, kInfoTitle);
+
+    // A registered client carrying nothing worth showing — no title, no
+    // artist, no duration — is a player that is open but idle. Apple Music
+    // sits in this state whenever playback is stopped. Showing an island with
+    // only an application icon in it tells nobody anything, so this counts as
+    // idle too.
+    BOOL hasSubstance = title != nil || NMBString(info, kInfoArtist) != nil
+        || NMBNumber(info, kInfoDuration) != nil;
+
+    if (!hasSubstance) {
+        if (![gLastSignature isEqualToString:@"idle"]) {
+            gLastSignature = @"idle";
+            gLastArtworkKey = nil;
+            gArtworkPendingTrack = nil;
+            gCachedInfo = nil;
+            NMBEmit(@{@"type": @"idle"});
+        }
+        return;
+    }
+
+    if (title == nil && bundleIdentifier == nil && parentBundleIdentifier == nil) {
+        if (![gLastSignature isEqualToString:@"idle"]) {
+            gLastSignature = @"idle";
+            gLastArtworkKey = nil;
+            gArtworkPendingTrack = nil;
+            gCachedInfo = nil;
+            NMBEmit(@{@"type": @"idle"});
+        }
+        return;
+    }
+
+    NSMutableDictionary *payload = [NSMutableDictionary dictionary];
+    payload[@"title"] = title ?: @"";
+    if (NMBString(info, kInfoArtist)) payload[@"artist"] = NMBString(info, kInfoArtist);
+    if (NMBString(info, kInfoAlbum)) payload[@"album"] = NMBString(info, kInfoAlbum);
+    if (bundleIdentifier) payload[@"bundleIdentifier"] = bundleIdentifier;
+    if (parentBundleIdentifier) payload[@"parentBundleIdentifier"] = parentBundleIdentifier;
+    if (appName) payload[@"appName"] = appName;
+    if (NMBMediaType(info)) payload[@"mediaType"] = NMBMediaType(info);
+    if (NMBNumber(info, kInfoIsMusicApp)) payload[@"isMusicApp"] = NMBNumber(info, kInfoIsMusicApp);
+    if (NMBNumber(info, kInfoDuration)) payload[@"duration"] = NMBNumber(info, kInfoDuration);
+    if (NMBNumber(info, kInfoElapsed)) payload[@"elapsedTime"] = NMBNumber(info, kInfoElapsed);
+    if (NMBNumber(info, kInfoPlaybackRate)) {
+        payload[@"playbackRate"] = NMBNumber(info, kInfoPlaybackRate);
+    }
+    if (NMBTimestamp(info, kInfoTimestamp)) {
+        payload[@"timestamp"] = NMBTimestamp(info, kInfoTimestamp);
+    }
+    if (NMBString(info, kInfoUniqueIdentifier)) {
+        payload[@"trackIdentifier"] = NMBString(info, kInfoUniqueIdentifier);
+    } else if (NMBNumber(info, kInfoUniqueIdentifier)) {
+        payload[@"trackIdentifier"] = [NMBNumber(info, kInfoUniqueIdentifier) stringValue];
+    }
+    payload[@"isPlaying"] = @(isPlaying);
+
+    NSString *trackKey = payload[@"trackIdentifier"] ?: title;
+
+    // The signature deliberately leaves out timestamp: it moves constantly, and
+    // the app interpolates position locally between real changes.
+    NSNumber *elapsed = payload[@"elapsedTime"];
+    NSString *signature = [NSString
+        stringWithFormat:@"%@|%@|%@|%@|%@|%d|%ld", payload[@"title"] ?: @"",
+                         payload[@"artist"] ?: @"", payload[@"album"] ?: @"", trackKey ?: @"",
+                         payload[@"bundleIdentifier"] ?: @"", isPlaying,
+                         (long)llround(elapsed.doubleValue)];
+
+    if (![signature isEqualToString:gLastSignature]) {
+        gLastSignature = signature;
+        NMBEmit(@{@"type": @"state", @"payload": payload});
+    }
+
+    NMBEmitArtwork(info, trackKey);
 }
 
 #pragma mark - Commands

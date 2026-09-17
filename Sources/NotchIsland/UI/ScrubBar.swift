@@ -2,6 +2,10 @@ import SwiftUI
 
 /// The progress bar in the expanded player, draggable to seek.
 ///
+/// Built on the system's glass material rather than flat shapes, so it reads
+/// the way a slider does elsewhere on macOS 26: a translucent track, a filled
+/// portion tinted from the artwork, and a knob that appears under the pointer.
+///
 /// Dragging updates a local position immediately and only tells the source
 /// where to go on release. Seeking on every pixel of movement would flood the
 /// source application with commands, and most of them handle that badly.
@@ -15,7 +19,9 @@ struct ScrubBar: View {
         presentation.isScrubBarHovered || presentation.isScrubbing
     }
 
-    private var height: Double { isActive ? 5 : 3 }
+    /// The track thickens under the pointer, as system sliders do.
+    private var trackHeight: Double { isActive ? 7 : 4 }
+    private var knobDiameter: Double { presentation.isScrubbing ? 13 : 11 }
 
     var body: some View {
         TimelineView(
@@ -23,41 +29,81 @@ struct ScrubBar: View {
         ) { timeline in
             let now = timeline.date
             VStack(spacing: 5) {
-                bar(progress: media.displayProgress(at: now))
+                slider(progress: media.displayProgress(at: now))
                 labels(position: media.displayPosition(at: now))
             }
         }
     }
 
-    private func bar(progress: Double?) -> some View {
+    private func slider(progress: Double?) -> some View {
         GeometryReader { proxy in
             let width = proxy.size.width
-            let filled = (progress ?? 0) * width
+            let fraction = progress ?? 0
+            let filled = fraction * width
 
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(.white.opacity(0.16))
+            // One container so the track and the knob are treated as a single
+            // piece of glass and blend where they meet.
+            //
+            // The material is layered *behind* solid fills rather than applied
+            // to them. `glassEffect` replaces what a view draws with the
+            // material itself, and over the island's pure black there is
+            // nothing behind it to refract — so used on its own it renders as
+            // nothing at all. Layering keeps the slider legible and lets the
+            // material add its rim highlight on top of that.
+            GlassEffectContainer(spacing: 6) {
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .glassEffect(.regular, in: .capsule)
+                        .frame(height: trackHeight)
 
-                if progress != nil {
                     Capsule()
-                        .fill(tint)
-                        .frame(width: max(filled, height))
-                } else {
-                    // No duration to show — a live stream. A moving bar would
-                    // imply a position that does not exist.
-                    Capsule()
-                        .fill(tint.opacity(0.35))
+                        .fill(.white.opacity(0.16))
+                        .frame(height: trackHeight)
+
+                    if progress != nil {
+                        Capsule()
+                            .fill(tint.gradient)
+                            .frame(width: max(filled, trackHeight), height: trackHeight)
+                    } else {
+                        // No duration to show — a live stream. A moving bar
+                        // would imply a position that does not exist.
+                        Capsule()
+                            .fill(tint.opacity(0.32))
+                            .frame(height: trackHeight)
+                    }
+
+                    if progress != nil, isActive {
+                        knob
+                            .offset(
+                                x: min(max(filled - knobDiameter / 2, 0), width - knobDiameter))
+                    }
                 }
+                .frame(maxHeight: .infinity, alignment: .center)
             }
-            .frame(height: height)
-            .frame(maxHeight: .infinity)
+            // A generous target: the visible track is only a few points tall.
             .contentShape(.rect)
             .gesture(dragGesture(width: width))
         }
-        .frame(height: 12)
+        .frame(height: 14)
+        .accessibilityLabel("Playback position")
+        .accessibilityValue(progress.map { "\(Int(($0 * 100).rounded())) percent" } ?? "Unknown")
         .onHover { presentation.isScrubBarHovered = $0 }
         .animation(.smooth(duration: 0.18), value: isActive)
+        .animation(.smooth(duration: 0.18), value: presentation.isScrubbing)
         .disabled(track.duration == nil)
+    }
+
+    private var knob: some View {
+        ZStack {
+            Circle()
+                .glassEffect(.regular.interactive(), in: .circle)
+            Circle()
+                .fill(.white.opacity(0.95))
+                .overlay(Circle().strokeBorder(.black.opacity(0.12), lineWidth: 0.5))
+        }
+        .frame(width: knobDiameter, height: knobDiameter)
+        .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
+        .transition(.opacity.combined(with: .scale))
     }
 
     private func dragGesture(width: Double) -> some Gesture {

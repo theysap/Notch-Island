@@ -9,7 +9,7 @@ struct TransportControls: View {
 
     var body: some View {
         HStack(spacing: 22) {
-            button(.previous, symbol: "backward.fill", size: 13) {
+            button(.previous, symbol: "backward.fill", size: 13, label: "Previous") {
                 media.previousTrack()
             }
 
@@ -17,14 +17,15 @@ struct TransportControls: View {
                 .playPause,
                 symbol: isPlaying ? "pause.fill" : "play.fill",
                 size: 17,
-                tint: tint
+                tint: tint,
+                label: isPlaying ? "Pause" : "Play"
             ) {
                 media.togglePlayPause()
             }
             // Keeps the row from shifting as the symbol changes width.
             .frame(width: 24)
 
-            button(.next, symbol: "forward.fill", size: 13) {
+            button(.next, symbol: "forward.fill", size: 13, label: "Next") {
                 media.nextTrack()
             }
         }
@@ -35,6 +36,7 @@ struct TransportControls: View {
         symbol: String,
         size: Double,
         tint: Color = .white,
+        label: String,
         action: @escaping () -> Void
     ) -> some View {
         let isHovering = presentation.hoveredControl == control
@@ -48,6 +50,7 @@ struct TransportControls: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(label)
         .scaleEffect(isHovering ? 1.12 : 1)
         .onHover { hovering in
             if hovering {

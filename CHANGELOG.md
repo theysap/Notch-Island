@@ -5,6 +5,42 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-09-17
+
+### Fixed
+
+- The island could stop updating entirely and sit on a stale track.
+  `MRMediaRemoteGetNowPlayingInfo` does not always call back — observed with
+  Apple Music open — and the whole publish path was nested inside that
+  callback, so one query that never answered stopped everything. The three
+  queries now run together with a 600ms deadline that publishes whatever
+  arrived, and the last good metadata is kept across a failed fetch rather than
+  blanking the island.
+- A player that is open but idle no longer shows an island containing nothing
+  but its application icon. A registered source with no title, artist or
+  duration now counts as idle, which is the state Apple Music sits in whenever
+  playback is stopped.
+- Roughly 10% of a CPU while playing, and 87MB of memory, caused by
+  `.drawingGroup()` on the visualiser forcing an offscreen render pass every
+  frame for a view a few points across. Removing it took the app to under 1%
+  CPU and 18MB.
+
+### Changed
+
+- The progress bar is rebuilt on the system's glass material, with a tinted
+  fill and a knob that appears under the pointer, to match how sliders look
+  elsewhere on macOS 26. The material is layered behind solid fills rather than
+  applied to them: `glassEffect` replaces what a view draws, and over the
+  island's pure black there is nothing to refract, so on its own it renders as
+  nothing at all.
+
+### Added
+
+- Debug-only `--render-live <directory>`, which renders whatever is actually
+  playing through the real pipeline, for diagnosing layout problems that only
+  appear with live metadata.
+- A preview sample reproducing an empty-metadata source.
+
 ## [0.11.0] - 2026-09-17
 
 ### Added
