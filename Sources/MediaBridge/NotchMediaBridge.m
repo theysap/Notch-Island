@@ -22,6 +22,7 @@
 #import <Foundation/Foundation.h>
 
 #include <dlfcn.h>
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -419,6 +420,49 @@ static void NMBHandleCommand(NSDictionary *command) {
     MR.sendCommand(code, @{});
 }
 
+/// PID of the app that launched this host, captured before anything can
+/// reparent us.
+static pid_t gParentPID = 0;
+
+/// Watches for the app going away.
+///
+/// Relying on stdin reaching EOF is not enough: the write end of the pipe stays
+/// open in this process, so the read end never reports EOF even after the app
+/// is gone and this process has been reparented to launchd. Without an explicit
+/// watch, killing the app would leave a perl process running forever.
+static void NMBWatchParent(void) {
+    gParentPID = getppid();
+
+    // Already orphaned before we got started.
+    if (gParentPID <= 1) {
+        exit(0);
+    }
+
+    dispatch_source_t source =
+        dispatch_source_create(DISPATCH_SOURCE_TYPE_PROC, (uintptr_t)gParentPID,
+                               DISPATCH_PROC_EXIT, dispatch_get_main_queue());
+    if (source != NULL) {
+        dispatch_source_set_event_handler(source, ^{
+            exit(0);
+        });
+        dispatch_resume(source);
+    }
+}
+
+/// Second line of defence, and in practice the one that does the work: the
+/// process source above turns out not to fire reliably for this case on current
+/// macOS, so orphan detection cannot depend on it. Polling `getppid` once a
+/// second is a single cheap syscall and notices within a second of the app
+/// going away, however it went.
+static void NMBExitIfOrphaned(void) {
+    if (gParentPID > 1 && kill(gParentPID, 0) != 0 && errno == ESRCH) {
+        exit(0);
+    }
+    if (getppid() <= 1) {
+        exit(0);
+    }
+}
+
 /// Reads newline-delimited command objects from stdin. An EOF here means the
 /// app has gone away — the host process exits rather than lingering.
 static void NMBStartCommandReader(void) {
@@ -505,11 +549,23 @@ __attribute__((constructor)) static void NMBMain(void) {
         if (MR.setWantsNotifications != NULL) {
             MR.setWantsNotifications(YES);
         }
+        NMBWatchParent();
         NMBObserveNotifications();
         NMBStartCommandReader();
 
-        NMBEmit(@{@"type": @"ready"});
+        NMBEmit(@{@"type": @"ready", @"parentPID": @(gParentPID), @"pid": @(getpid())});
         NMBPublish();
+
+        // Orphan check. Runs every second so a quit app does not leave this
+        // process behind for any noticeable length of time.
+        dispatch_source_t orphanCheck =
+            dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+        dispatch_source_set_timer(orphanCheck, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC),
+                                  NSEC_PER_SEC, NSEC_PER_SEC / 2);
+        dispatch_source_set_event_handler(orphanCheck, ^{
+            NMBExitIfOrphaned();
+        });
+        dispatch_resume(orphanCheck);
 
         // A slow heartbeat. Notifications cover essentially every change, but a
         // source that dies without notifying would otherwise leave the island

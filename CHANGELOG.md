@@ -5,6 +5,32 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-17
+
+### Added
+
+- Swift media layer: `NowPlaying` snapshots, a decoder for the bridge's wire
+  format, and `MediaController`, the app's observable view of what is playing.
+- `MediaBridgeConnection`, which supervises the host process, streams its
+  output, writes commands to it, and relaunches it with back-off if it dies.
+- Content-type inference in `MediaKind`. MediaRemote reports an explicit media
+  type for native applications and nothing at all for browsers, so browser
+  playback is classified from the track tags and duration instead.
+- Artwork handling, including the source application's icon as a stand-in for
+  sources that publish no artwork.
+- `ArtworkPalette`, which averages artwork down to an accent and background
+  colour so the island can be tinted to match what is playing.
+- Application shell: an accessory-mode app with a menu bar item showing the
+  current track and a way to quit.
+
+### Fixed
+
+- The helper process outlived the app. The write end of its own stdin pipe
+  stays open inside the helper, so the pipe never reaches EOF, and neither a
+  `DISPATCH_SOURCE_TYPE_PROC` exit source nor reparenting to launchd was enough
+  on its own. The helper now polls its parent once a second and exits about a
+  second after the app goes away, verified against both `SIGTERM` and `SIGKILL`.
+
 ## [0.2.0] - 2026-09-17
 
 ### Added
