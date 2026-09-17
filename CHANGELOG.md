@@ -5,6 +5,19 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-09-17
+
+### Added
+
+- Test suite: 39 tests across 7 suites, written with Swift Testing, covering
+  content-type inference, the bridge wire format in both directions, playback
+  position interpolation and clamping, line reassembly from chunked pipe reads,
+  island geometry, and time formatting.
+- `Scripts/test.sh`, which locates Swift Testing's macro plugin and runs the
+  suite. The plugin sits in a subdirectory the compiler does not search by
+  default under the Command Line Tools, and passing its path at invocation
+  keeps absolute paths out of `Package.swift`.
+
 ## [0.6.0] - 2026-09-17
 
 ### Added

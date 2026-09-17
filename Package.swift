@@ -17,5 +17,10 @@ let package = Package(
             name: "NotchIsland",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        .testTarget(
+            name: "NotchIslandTests",
+            dependencies: ["NotchIsland"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
     ]
 )
