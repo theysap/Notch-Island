@@ -5,6 +5,33 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-09-18
+
+First release.
+
+### Added
+
+- `TECHNICAL.md`: the whole architecture in one place — the process model and
+  why the app talks to MediaRemote through a perl host, which queries answer
+  and which are gated, how artwork is resolved differently for every kind of
+  source, the geometry, hover, the indicators, the updater, and how each piece
+  was verified on a machine that could not screenshot its own window.
+- A **Permissions** section in the README, listing every permission the app
+  can ask for, when it is asked, what it buys, and what is lost by refusing —
+  along with what is never asked for and why.
+
+### Changed
+
+- The version shown in the menu and in Settings is the release version alone.
+  The bundle still carries a build number derived from the commit count,
+  because macOS wants one that increases, but a commit is not something anyone
+  can download, so it is no longer displayed.
+- The README screenshots are of real playback rather than synthetic preview
+  data, and the standalone ones are centred.
+- The README's account of the menu bar and of content-type inference now
+  matches the code: the menu bar reservation was removed in v0.17.1, and
+  general-purpose players have been judged by content since v0.17.3.
+
 ## [0.18.0] - 2026-09-18
 
 ### Added

@@ -27,7 +27,9 @@ activity indicator on the right, and nothing at all when nothing is playing.
 
 **Hover the top of the screen** and it opens into a mini player.
 
+<div align="center">
 <img src="docs/images/music-expanded.png" width="620" alt="The expanded mini player">
+</div>
 
 ### The indicator knows what it is looking at
 
@@ -41,10 +43,16 @@ someone talking.
 | **Podcast** — a travelling waveform on a speech envelope, dropping close to silence between phrases | <img src="docs/images/podcast-compact.png" width="300"> |
 | **Video** — the real playback position, as a track with a lit head | <img src="docs/images/video-compact.png" width="300"> |
 
-macOS reports the media type directly for native applications. Browsers report
-nothing at all, so those are classified from the track tags and duration: a full
-set of artist and album tags is a streaming music service, something running
-past half an hour is an episode, and anything else is video.
+macOS reports the media type directly for dedicated applications. Two cases
+have to be worked out instead:
+
+- **General-purpose players** — VLC, IINA, QuickTime, mpv — open albums as
+  readily as films, so the application says nothing useful. The track decides:
+  tagged with an artist or album and under fifteen minutes is music, anything
+  longer or untagged is video.
+- **Browsers** report no media type at all. A full set of artist and album tags
+  is a streaming music service, something running past half an hour is an
+  episode, and anything else is video.
 
 ### The mini player
 
@@ -56,7 +64,9 @@ rather than firing a seek command per pixel.
 Playback that reports no duration — live radio, a stream — gets a static bar
 rather than a progress bar implying a position that does not exist.
 
+<div align="center">
 <img src="docs/images/paused-expanded.png" width="620" alt="The mini player with playback paused">
+</div>
 
 ## Requirements
 
@@ -78,30 +88,74 @@ Right-click the app → **Open** → **Open**. This is needed once.
 
 Then open Settings from the menu bar icon and turn on **Launch at login**.
 
+### Updates
+
+The menu names the version you are running, and offers the new one when there
+is one. Choosing it downloads the release, replaces the running copy and
+relaunches into it.
+
+Because the app is ad-hoc signed, there is no Developer ID for macOS to check
+on relaunch — so every download is verified against the `SHA256SUMS.txt`
+published beside it in the release, and one that does not match is discarded
+rather than installed. Worth being clear-eyed about what that does and does
+not buy you: it proves the download is the file that was published, and
+nothing about who published it. Anyone able to publish a release to this
+repository can ship code to every install. That is a property of shipping
+without notarisation, not of this particular updater.
+
+Turn automatic checking off in Settings if you would rather look yourself.
+
+## Permissions
+
+NotchIsland asks for as little as it can, and it should be obvious why each
+one is wanted. **Everything here is optional** — refuse any of it and the app
+keeps working, with the specific feature it buys missing.
+
+| Permission | Asked when | What it is for | Without it |
+|---|---|---|---|
+| **Automation → Music** | The first time an Apple Music track's cover cannot be found any other way | Two things MediaRemote refuses to report: the artwork for tracks in your library, and where Music has actually got to after you drag its own scrubber | Library tracks show the Music icon instead of a cover, and the playhead can drift after you seek inside Music |
+| **Login item** | You turn on *Launch at login* | Starts the app when you log in, through `SMAppService` | Start it yourself |
+
+That is the whole list. In particular:
+
+- **No Accessibility.** The pointer is watched with ordinary mouse-location
+  reads, which need no permission. Nothing is clicked or typed on your behalf.
+- **No Screen Recording.** Nothing is captured.
+- **No Full Disk Access, and no access to your media files.** Album art for
+  local files played in VLC is read from VLC's own cache in
+  `~/Library/Caches`, precisely so the app never has to ask to read your
+  Music, Downloads or Documents folders.
+- **No network access, except to GitHub.** Two kinds of request are made:
+  checking for and downloading releases, and fetching cover art from the URL
+  the source application published for it (Apple Music's own image CDN, for
+  instance). Nothing is sent anywhere — no analytics, no crash reporting, no
+  account.
+- **Nothing is injected into any other application.** The MediaRemote helper
+  described below runs as its own process and touches nothing else.
+
 ## Settings
 
 | Setting | What it does |
 |---|---|
 | Launch at login | Registers the app as a login item through `SMAppService`. |
-| Show menu bar icon | The status item carries the current track and transport controls. |
+| Show menu bar icon | The menu carries the version, updates, Settings and Quit. |
 | Hide the island while paused | Off by default, so the island stays put when you pause. |
-| Keep menu bar icons clear of the island | Reserves menu bar width so status icons are laid out beside the island. On by default. |
+| Check for updates automatically | Looks for a new release on launch and every six hours. On by default. |
 
-### About that last one
+### About the menu bar
 
 The island is wider than the notch — that is where the artwork and the indicator
-go — so it would otherwise cover whatever is in the menu bar beside the notch.
+go — so it can cover whatever sits in the menu bar beside the notch.
 
-For the **status icons on the right**, NotchIsland reserves that width with an
-empty status item. macOS then lays the real icons out beside the island and
-folds whatever no longer fits behind its own overflow chevron.
+Nothing can be done about that from inside an app, and an earlier version of
+this one made it worse by trying. Control Center's own items cannot be moved at
+all; other applications' status icons are laid out as one group anchored to the
+right edge, so adding an invisible spacer only widens that group leftwards and
+pushes their icons *towards* the island. That reservation was measured and
+removed in v0.17.1. NotchIsland now occupies its own icon and nothing more.
 
-For the **menus on the left** — File, Edit, and so on — there is no equivalent.
-Those belong to the active application and are drawn by the system; no API
-exists to reserve space against them or to fold them. macOS already truncates
-them at the notch with its own chevron, but an application with a great many
-menus can still reach under the island's left edge. If that bothers you in
-practice, the island's reach is one constant in `IslandLayout.compactSideWidth`.
+If the overlap bothers you, the island's reach either side of the notch is one
+constant: `IslandLayout.compactSideWidth`.
 
 ## How it works
 
@@ -122,9 +176,15 @@ NotchIsland  ──spawns──▶  /usr/bin/perl  ──loads──▶  libNotc
 ```
 
 The library's constructor takes the host process over and never returns. It
-streams now-playing state out as JSON and reads transport commands back in. No
-permissions are required — not Accessibility, not Screen Recording, not
-Automation — and nothing is injected into any other application.
+streams now-playing state out as JSON and reads transport commands back in. It
+needs no permissions of any kind, and nothing is injected into any other
+application.
+
+What MediaRemote will not give up is artwork bytes, and a seek you made in the
+source's own window. Those are asked of the source application directly, which
+is the one and only reason the app ever wants Automation. See
+[Permissions](#permissions), and [TECHNICAL.md](TECHNICAL.md) for what was
+measured to establish it.
 
 The helper exits about a second after the app does. It polls its parent to
 decide that, because its own stdin never reaches EOF: the write end of that pipe
@@ -138,6 +198,13 @@ table of Mac models — every notched Mac reports the areas either side of its
 camera housing, which makes this exact on models that do not exist yet. The
 island is symmetric about the housing by construction and centred on the
 housing rather than on the screen.
+
+### Further in
+
+[**TECHNICAL.md**](TECHNICAL.md) covers the whole of it: the process model, what
+MediaRemote will and will not answer and how that was established, how artwork
+is resolved per source, the geometry, the updater, and how each piece was
+verified on a machine that could not screenshot its own window.
 
 ## Building
 

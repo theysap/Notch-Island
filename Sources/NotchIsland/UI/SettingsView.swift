@@ -83,11 +83,14 @@ struct SettingsView: View {
 }
 
 enum AppInfo {
+    /// The released version, and only that.
+    ///
+    /// The bundle also carries a build number derived from the commit count,
+    /// because macOS wants one that always increases. It is not shown: a
+    /// build is not something anyone can download, and a number that moves
+    /// with every commit only invites the question of which one you have.
+    /// Releases are what exist, so releases are what is displayed.
     static var versionDescription: String {
-        let info = Bundle.main.infoDictionary
-        let short = info?["CFBundleShortVersionString"] as? String ?? "dev"
-        let build = info?["CFBundleVersion"] as? String
-        guard let build, build != short else { return short }
-        return "\(short) (\(build))"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
     }
 }
