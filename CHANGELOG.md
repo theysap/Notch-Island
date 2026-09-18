@@ -5,6 +5,22 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1] - 2026-09-18
+
+### Fixed
+
+- A blank gap sat between the island and other applications' menu bar icons.
+  It was the menu bar reservation, and the reservation never worked: the
+  system's own Control Center items cannot be pushed at all — measured at a
+  300pt reservation, they did not move a pixel — and other applications' status
+  items are laid out as a group anchored to the right, so an invisible item
+  only makes that group wider on its left. Measured with three stand-in status
+  items: they naturally sat from x 1206pt, comfortably clear of the island's
+  right edge at 1022pt, and the 69pt reservation moved them to 1087pt, which is
+  *towards* the island rather than away from it. So it opened a gap and made
+  the overlap it was meant to prevent more likely. Removed, along with its
+  setting; the app's menu bar footprint is now just its own icon.
+
 ## [0.17.0] - 2026-09-18
 
 ### Added

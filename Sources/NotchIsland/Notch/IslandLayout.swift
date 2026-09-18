@@ -56,13 +56,6 @@ struct IslandLayout: Equatable, Sendable {
         (compactSize.width - metrics.notchWidth) / 2
     }
 
-    /// Menu bar width to reserve on the right, so status items are laid out
-    /// clear of the island rather than underneath it. A little more than the
-    /// overhang, so icons do not sit flush against the island's edge.
-    var menuBarReservation: CGFloat {
-        overhangPerSide + 6
-    }
-
     /// Room around the island for its shadow, and for the expanded state to
     /// grow into without the window having to be resized mid-animation.
     private var padding: CGFloat { 40 }

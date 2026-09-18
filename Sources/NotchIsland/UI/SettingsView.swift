@@ -19,21 +19,6 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle(
-                    "Keep menu bar icons clear of the island", isOn: $settings.reservesMenuBarSpace)
-            } footer: {
-                Text(
-                    """
-                    Reserves menu bar width so status icons are laid out beside \
-                    the island instead of behind it. Menus on the left of the \
-                    notch belong to the active app and cannot be moved.
-                    """
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-
-            Section {
                 LabeledContent("Version", value: AppInfo.versionDescription)
                 LabeledContent("Model", value: MacModel.identifier)
             }

@@ -127,14 +127,6 @@ struct IslandSymmetryTests {
             #expect(leftGap == rightGap)
         }
     }
-
-    @Test("The reserved menu bar width covers the island's overhang")
-    func reservationCoversOverhang() {
-        let layout = layout(notchWidth: 208, screenWidth: 1710)
-
-        // Status icons must end up clear of the island, not flush against it.
-        #expect(layout.menuBarReservation > layout.overhangPerSide)
-    }
 }
 
 @Suite("Notch measurement limits")
