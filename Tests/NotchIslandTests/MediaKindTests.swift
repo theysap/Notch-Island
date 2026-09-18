@@ -115,3 +115,48 @@ struct MediaKindTests {
         )
     }
 }
+
+@Suite("Source artwork")
+struct SourceArtworkTests {
+    private let caches = URL(fileURLWithPath: "/Users/someone/Library/Caches", isDirectory: true)
+
+    @Test("VLC's cache path is built from the artist and album it reports")
+    func vlcPathFromArtistAndAlbum() {
+        // Measured on a real track: MediaRemote reported this artist and album,
+        // and VLC had written the cover to exactly this directory.
+        let directory = SourceArtwork.vlcArtworkDirectory(
+            artist: "Krishna Chaitanya", album: "Nuvvila - (2011)", cachesDirectory: caches)
+
+        #expect(
+            directory?.path
+                == "/Users/someone/Library/Caches/org.videolan.vlc/art/artistalbum/"
+                + "Krishna Chaitanya/Nuvvila - (2011)")
+    }
+
+    @Test("No artist or album means no lookup")
+    func vlcPathNeedsBoth() {
+        #expect(
+            SourceArtwork.vlcArtworkDirectory(artist: nil, album: "A", cachesDirectory: caches)
+                == nil)
+        #expect(
+            SourceArtwork.vlcArtworkDirectory(artist: "A", album: "", cachesDirectory: caches)
+                == nil)
+    }
+
+    @Test("A separator in a tag cannot escape the cache directory")
+    func vlcPathRejectsSeparators() {
+        // VLC does not create a directory for such a name, and building one
+        // here would point somewhere else entirely.
+        #expect(
+            SourceArtwork.vlcArtworkDirectory(
+                artist: "../../etc", album: "passwd", cachesDirectory: caches) == nil)
+    }
+
+    @Test("Only sources with a route are tried")
+    func routesAreKnown() {
+        #expect(SourceArtwork.canProvide(for: "org.videolan.vlc"))
+        #expect(SourceArtwork.canProvide(for: "com.apple.Music"))
+        #expect(!SourceArtwork.canProvide(for: "com.google.Chrome"))
+        #expect(!SourceArtwork.canProvide(for: nil))
+    }
+}

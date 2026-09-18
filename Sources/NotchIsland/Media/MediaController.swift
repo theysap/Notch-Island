@@ -309,16 +309,15 @@ final class MediaController {
         fetchArtworkFromSource(for: track)
     }
 
-    /// Asks the source application for the cover, for the tracks MediaRemote
+    /// Gets the cover from the source application, for the tracks MediaRemote
     /// publishes no artwork for at all.
     ///
-    /// Deliberately late and conditional: a catalogue track's artwork URL
-    /// usually lands within a few hundred milliseconds, and when it does there
-    /// is nothing to ask for. Only a track that still has nothing but the
-    /// source's icon is worth an Apple event.
+    /// Deliberately late and conditional: a track whose artwork is a URL has
+    /// it within a few hundred milliseconds, and when it does there is nothing
+    /// to go and find. Only a track still showing nothing but the source's
+    /// icon is worth the work.
     private func fetchArtworkFromSource(for track: NowPlaying) {
-        guard let source = track.sourceBundleIdentifier, SourceScripting.supports(source)
-        else { return }
+        guard SourceArtwork.canProvide(for: track.sourceBundleIdentifier) else { return }
 
         let key = track.trackIdentifier
         sourceArtwork?.cancel()
@@ -326,7 +325,7 @@ final class MediaController {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled, let self, self.stillWaitingForArtwork(of: key) else { return }
 
-            let data = await SourceScripting.shared.artwork(of: source)
+            let data = await SourceArtwork.artwork(for: track)
             guard !Task.isCancelled, let data, let image = NSImage(data: data) else { return }
             self.applyArtworkFromSource(image, for: key)
         }
