@@ -59,14 +59,22 @@ extension MediaKind {
         "com.bookmate.listen",
     ]
 
+    /// Services that only ever show video. The application alone settles it.
     private static let videoIdentifiers: Set<String> = [
         "com.apple.TV",
-        "com.apple.QuickTimePlayerX",
-        "com.colliderli.iina",
-        "org.videolan.vlc",
         "com.netflix.Netflix",
         "tv.plex.desktop",
         "com.plexapp.plexmediaplayer",
+    ]
+
+    /// Players that will open anything handed to them. Naming these as video
+    /// players was wrong: VLC plays as many albums as it does films, and the
+    /// application says nothing about which. What is playing decides — see
+    /// `contentKind`.
+    private static let generalPlayerIdentifiers: Set<String> = [
+        "org.videolan.vlc",
+        "com.colliderli.iina",
+        "com.apple.QuickTimePlayerX",
         "com.mpv",
         "io.mpv",
     ]
@@ -86,6 +94,29 @@ extension MediaKind {
     /// A podcast episode is far longer than a song. Used only when the source
     /// application is a browser and nothing better is known.
     private static let longFormThreshold: TimeInterval = 30 * 60
+
+    /// Past this, a file in a general-purpose player is taken to be a video
+    /// whatever its tags say. A song rarely runs this long; a film, a lecture
+    /// or a recorded set always does.
+    private static let featureLengthThreshold: TimeInterval = 15 * 60
+
+    /// What a general-purpose player is playing, judged by the track itself.
+    ///
+    /// Artwork is deliberately not part of this. A player publishes artwork
+    /// for films as readily as for albums, and often publishes none at all
+    /// for either, so it separates nothing.
+    private static func contentKind(
+        album: String?, artist: String?, duration: TimeInterval?
+    ) -> MediaKind {
+        if let duration, duration > featureLengthThreshold {
+            return .video
+        }
+
+        // Album and artist tags are what a music file carries and a video
+        // file does not.
+        let hasTrackTags = !(album ?? "").isEmpty || !(artist ?? "").isEmpty
+        return hasTrackTags ? .music : .video
+    }
 
     /// Works out what is playing from whatever the system was willing to say.
     ///
@@ -115,6 +146,10 @@ extension MediaKind {
             if podcastIdentifiers.contains(bundleIdentifier) { return .podcast }
             if videoIdentifiers.contains(bundleIdentifier) { return .video }
             if musicIdentifiers.contains(bundleIdentifier) { return .music }
+
+            if generalPlayerIdentifiers.contains(bundleIdentifier) {
+                return contentKind(album: album, artist: artist, duration: duration)
+            }
 
             if browserIdentifiers.contains(bundleIdentifier) {
                 // A full set of track tags in a browser almost always means a

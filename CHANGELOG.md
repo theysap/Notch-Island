@@ -5,6 +5,21 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.3] - 2026-09-18
+
+### Changed
+
+- A general-purpose player is now judged by what it is playing rather than by
+  which application it is. VLC, IINA, QuickTime and mpv open as many albums as
+  they do films, so classifying them as video players put the playhead sweep
+  over every song. A file with an album or artist tag, running under fifteen
+  minutes, is treated as music; anything longer, or with no tags at all, stays
+  video. Artwork is deliberately not part of the test — these players publish
+  it for films as readily as for albums, and often for neither.
+
+  Dedicated video services — Apple TV, Netflix, Plex — are unchanged: the
+  application really does settle it there.
+
 ## [0.17.2] - 2026-09-18
 
 ### Added

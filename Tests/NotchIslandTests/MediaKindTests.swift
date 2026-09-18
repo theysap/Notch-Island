@@ -35,6 +35,7 @@ struct MediaKindTests {
     func knownApplications() {
         #expect(kind(bundle: "com.apple.podcasts") == .podcast)
         #expect(kind(bundle: "com.colliderli.iina") == .video)
+        #expect(kind(bundle: "com.netflix.Netflix") == .video)
         #expect(kind(bundle: "com.spotify.client") == .music)
         #expect(kind(bundle: "com.apple.TV") == .video)
     }
@@ -83,6 +84,34 @@ struct MediaKindTests {
         #expect(
             kind(bundle: "com.example.unknown", album: nil, artist: nil, duration: nil) == .generic
         )
+    }
+
+    @Test("A general player is judged by what it is playing, not by being VLC")
+    func generalPlayerFollowsContent() {
+        // A song in VLC: tagged, and short enough to be one.
+        #expect(
+            kind(
+                bundle: "org.videolan.vlc", album: "Salute - (2008)",
+                artist: "Sadhana Sargam", duration: 366) == .music)
+
+        // An untagged file is a video as far as anyone can tell.
+        #expect(kind(bundle: "org.videolan.vlc", duration: 366) == .video)
+    }
+
+    @Test("Anything feature length in a general player is a video, tags or not")
+    func generalPlayerLongForm() {
+        // A film, a lecture or a recorded set — not a song, whatever it is
+        // tagged as.
+        #expect(
+            kind(
+                bundle: "org.videolan.vlc", album: "Live", artist: "Someone",
+                duration: 16 * 60) == .video)
+
+        // Just under the line, with tags, is still a song.
+        #expect(
+            kind(
+                bundle: "com.colliderli.iina", album: "An Album", artist: "Someone",
+                duration: 14 * 60) == .music)
     }
 
     @Test("A music app flag classifies as music when no media type is given")
