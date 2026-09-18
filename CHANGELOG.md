@@ -5,6 +5,36 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-09-18
+
+### Added
+
+- Artwork for tracks in the music library, and a playhead that follows a seek
+  made in the source's own window. Both come from asking the source
+  application directly, because MediaRemote reports neither.
+
+  **Artwork.** Apple Music publishes an https URL in the artwork identifier for
+  catalogue tracks and an opaque identifier for library tracks, with no bytes
+  anywhere — which is why some covers appeared and others fell back to the
+  Music icon. Measured: no `ArtworkData` in the info dictionary in any of its
+  four variants, including from a fresh process at the instant of a track
+  change, which is what earlier versions relied on;
+  `MRContentItemGetArtworkData` reports `HasArtworkData = 1` and returns nil;
+  and neither the playback-queue request with `includeArtwork` nor
+  `MRMediaRemoteGetNowPlayingArtwork` ever calls back.
+
+  **The playhead.** MediaRemote reports a seek made *through* it and nothing
+  else. Measured: Music moved from 119.4s to 45.6s while its content item went
+  on reporting the original anchor. The island now checks the source's own
+  position every two seconds and re-anchors when they disagree by more than
+  0.75s. Normally they do not: measured against Music over successive polls,
+  the interpolated playhead and the source agree to about 3ms. Verified
+  correcting a 70-second divergence after a seek MediaRemote never reported.
+
+  This needs Automation permission, which macOS asks for once. Refusing it
+  leaves the app exactly as it was, and the refusal is remembered so the
+  question is not asked again. Only Apple Music is wired up.
+
 ## [0.16.2] - 2026-09-18
 
 ### Fixed

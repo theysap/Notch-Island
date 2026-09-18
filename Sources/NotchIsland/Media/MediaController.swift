@@ -29,6 +29,12 @@ final class MediaController {
 
     private let connection = MediaBridgeConnection()
     private var listener: Task<Void, Never>?
+
+    /// Keeps the playhead honest against sources that seek without telling
+    /// MediaRemote, and fetches artwork MediaRemote does not publish. See
+    /// `SourceScripting` for what was measured.
+    private var sourceSync: Task<Void, Never>?
+    private var sourceArtwork: Task<Void, Never>?
     private var artworkKey: String?
     private var artworkDownload: Task<Void, Never>?
 
@@ -62,11 +68,22 @@ final class MediaController {
                 self.handle(message)
             }
         }
+
+        sourceSync = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                await self?.resyncPositionFromSource()
+            }
+        }
     }
 
     func stop() {
         listener?.cancel()
         listener = nil
+        sourceSync?.cancel()
+        sourceSync = nil
+        sourceArtwork?.cancel()
+        sourceArtwork = nil
         Task { [connection] in await connection.stop() }
     }
 
@@ -289,6 +306,79 @@ final class MediaController {
         artworkDownload?.cancel()
         artworkDownload = nil
         applySourceIcon(for: track)
+        fetchArtworkFromSource(for: track)
+    }
+
+    /// Asks the source application for the cover, for the tracks MediaRemote
+    /// publishes no artwork for at all.
+    ///
+    /// Deliberately late and conditional: a catalogue track's artwork URL
+    /// usually lands within a few hundred milliseconds, and when it does there
+    /// is nothing to ask for. Only a track that still has nothing but the
+    /// source's icon is worth an Apple event.
+    private func fetchArtworkFromSource(for track: NowPlaying) {
+        guard let source = track.sourceBundleIdentifier, SourceScripting.supports(source)
+        else { return }
+
+        let key = track.trackIdentifier
+        sourceArtwork?.cancel()
+        sourceArtwork = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled, let self, self.stillWaitingForArtwork(of: key) else { return }
+
+            let data = await SourceScripting.shared.artwork(of: source)
+            guard !Task.isCancelled, let data, let image = NSImage(data: data) else { return }
+            self.applyArtworkFromSource(image, for: key)
+        }
+    }
+
+    /// True while the track is still current and showing nothing but an icon.
+    private func stillWaitingForArtwork(of trackIdentifier: String) -> Bool {
+        nowPlaying?.trackIdentifier == trackIdentifier && (artwork == nil || artworkIsSourceIcon)
+    }
+
+    private func applyArtworkFromSource(_ image: NSImage, for trackIdentifier: String) {
+        guard stillWaitingForArtwork(of: trackIdentifier) else { return }
+
+        artworkKey = trackIdentifier
+        artwork = image
+        artworkIsSourceIcon = false
+        palette = ArtworkPalette.extract(from: image)
+        AppLog.media.info("Artwork read from the source application")
+    }
+
+    /// Pulls the playhead back to where the source says it is.
+    ///
+    /// A seek made in the source's own window is reported nowhere by
+    /// MediaRemote — measured: Music moved from 119.4s to 45.6s while the
+    /// content item went on reporting its original anchor — so without this
+    /// the island keeps counting from wherever it last thought it was.
+    private func resyncPositionFromSource() async {
+        guard scrubPosition == nil, let track = nowPlaying, track.isPlaying,
+            let source = track.sourceBundleIdentifier, SourceScripting.supports(source)
+        else { return }
+
+        guard let actual = await SourceScripting.shared.playerPosition(of: source) else { return }
+
+        // The await took time, and the drag may have started in it.
+        guard scrubPosition == nil, var current = nowPlaying,
+            current.trackIdentifier == track.trackIdentifier
+        else { return }
+
+        // Only a real disagreement is worth acting on. Normally there is none:
+        // measured against Music over successive polls, the interpolated
+        // playhead and the source's own position agree to about 3ms. So
+        // anything approaching a second means the source moved without saying
+        // so, which is exactly the case this exists for.
+        let believed = current.position(at: .now)
+        guard abs(believed - actual) > 0.75 else { return }
+
+        current.reportedElapsed = actual
+        current.reportedAt = .now
+        nowPlaying = current
+        AppLog.media.info(
+            "Playhead resynced from the source: \(believed, format: .fixed(precision: 1))s -> \(actual, format: .fixed(precision: 1))s"
+        )
     }
 
     private func applySourceIcon(for track: NowPlaying) {
