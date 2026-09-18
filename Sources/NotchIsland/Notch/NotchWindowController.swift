@@ -114,6 +114,9 @@ final class NotchWindowController {
             presentation.resetInteraction()
         }
         refreshInteractivity()
+        // Literal messages: os_log redacts interpolated strings by default,
+        // and this one is only useful if it can be read back.
+        AppLog.window.info("\(expanded ? "Island expanded" : "Island collapsed", privacy: .public)")
     }
 
     /// Updates the hover zone, and lets the panel take mouse events only while

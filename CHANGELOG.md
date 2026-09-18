@@ -5,6 +5,33 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.2] - 2026-09-18
+
+### Fixed
+
+- Hovering the camera housing, or the very top of the screen, did not open the
+  island — only the stretches either side of the notch did. Pushing the pointer
+  to the top edge reports the screen's `maxY` exactly (measured: y 1112.0 on an
+  1112pt screen), and `CGRect.contains` excludes a rectangle's own maxY, so the
+  one position the pointer lands in when it is flicked upwards fell outside the
+  hover zone. Reaching the housing means going to that edge, which is why the
+  two symptoms looked like one. The zone now extends a little past the top of
+  the screen.
+
+  Measured before and after by warping the pointer to four positions across the
+  notch: the old build ignored both top-edge positions and opened for the other
+  two; the new build opens for all four.
+
+### Changed
+
+- The hover poll runs at 0.1s instead of 0.25s, and only while the island is on
+  screen. It is the only thing that sees the pointer over the notch — a global
+  event monitor sees events delivered to other applications, and the menu bar
+  beside the housing does not always have one — so it now runs often enough to
+  feel immediate, and not at all when there is nothing to open.
+- Expanding and collapsing are logged, so hover can be verified from
+  `log stream` rather than by eye.
+
 ## [0.15.1] - 2026-09-17
 
 ### Fixed

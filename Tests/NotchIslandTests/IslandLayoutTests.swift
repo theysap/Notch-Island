@@ -48,12 +48,16 @@ struct IslandLayoutTests {
         }
     }
 
-    @Test("The hover zone reaches the top edge of the screen")
+    @Test("The hover zone contains the pointer at the top edge of the screen")
     func hoverZoneTouchesTheScreenEdge() {
-        // The pointer cannot travel above the top of the screen, so a zone that
-        // stopped short would be unreachable at its top edge.
+        // Flicking the pointer to the top of the screen reports the screen's
+        // maxY exactly, and `contains` excludes a rectangle's own maxY — so a
+        // zone that stopped there would be unreachable at the one position the
+        // pointer lands in most often.
         for expanded in [false, true] {
-            #expect(layout.hoverZone(expanded: expanded).maxY == 1112)
+            let zone = layout.hoverZone(expanded: expanded)
+            #expect(zone.maxY > 1112)
+            #expect(zone.contains(CGPoint(x: zone.midX, y: 1112)))
         }
     }
 

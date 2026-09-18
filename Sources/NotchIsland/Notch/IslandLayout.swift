@@ -83,6 +83,16 @@ struct IslandLayout: Equatable, Sendable {
         )
     }
 
+    /// How far the hover zone reaches past the top of the screen.
+    ///
+    /// Pushing the pointer to the top edge reports `screenFrame.maxY` exactly —
+    /// one point above the topmost row of pixels — and `CGRect.contains` is
+    /// half-open, so a zone ending at `maxY` excludes the very position the
+    /// pointer lands in when it is flicked upwards. Measured on this machine:
+    /// a pointer warped to display y 0 comes back as `mouseLocation.y == 1112`
+    /// on an 1112pt screen.
+    var topOvershoot: CGFloat { 2 }
+
     /// The area that triggers expansion, in screen coordinates.
     ///
     /// Collapsed, it is the strip of menu bar the island occupies, widened
@@ -98,7 +108,7 @@ struct IslandLayout: Equatable, Sendable {
             x: metrics.centreX - island.width / 2 - margin,
             y: metrics.screenFrame.maxY - height,
             width: island.width + margin * 2,
-            height: height
+            height: height + topOvershoot
         )
     }
 }

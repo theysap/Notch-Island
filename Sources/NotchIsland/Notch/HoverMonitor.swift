@@ -13,7 +13,10 @@ final class HoverMonitor {
     /// The area to watch, in screen coordinates. Empty disables the monitor's
     /// effect without tearing it down.
     var zone: CGRect = .zero {
-        didSet { evaluate() }
+        didSet {
+            updatePolling()
+            evaluate()
+        }
     }
 
     /// Time the pointer must linger before the island opens. Without it, moving
@@ -59,16 +62,35 @@ final class HoverMonitor {
             return event
         }
 
-        // Safety net for the cases that produce no movement events at all: a
-        // window opening under a stationary pointer, a space switch, or the
-        // pointer being warped.
-        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+        updatePolling()
+        evaluate()
+    }
+
+    /// Polls the pointer while there is a zone to watch.
+    ///
+    /// The monitors above cover most movement, but not all of it: a global
+    /// monitor only sees events delivered to *another* application, and the
+    /// strip of menu bar beside the camera housing does not always have one.
+    /// Nor do the monitors fire when the pointer never moves — a window
+    /// opening underneath it, a space switch, or a warp.
+    ///
+    /// The poll is the only thing covering those, so it runs often enough to
+    /// feel immediate, and only while something is actually on screen to open.
+    private func updatePolling() {
+        let wanted = !zone.isEmpty
+        guard wanted != (pollTimer != nil) else { return }
+
+        guard wanted else {
+            pollTimer?.invalidate()
+            pollTimer = nil
+            return
+        }
+
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.evaluate() }
         }
         RunLoop.main.add(timer, forMode: .common)
         pollTimer = timer
-
-        evaluate()
     }
 
     func stop() {
