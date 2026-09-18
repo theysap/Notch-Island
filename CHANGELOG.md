@@ -5,6 +5,29 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-09-18
+
+### Fixed
+
+- The signing pipeline would not have worked on a build machine, despite
+  v1.1.0 saying it would. `DEVELOPER_ID_APPLICATION` reached only the
+  packaging step, so the application itself would still have been ad-hoc
+  signed and notarisation would have rejected it; and nothing imported the
+  certificate, which `codesign` cannot do without. The workflow now imports a
+  base64 `.p12` into a throwaway keychain, sets its partition list so
+  `codesign` does not stop to ask and hang the job, and removes the keychain
+  afterwards whatever happens.
+
+### Changed
+
+- The README and `TECHNICAL.md` now state what each level of signing actually
+  buys, rather than implying a signature is enough: ad-hoc is refused
+  outright, a Developer ID signature on its own is *also* refused — true since
+  macOS 10.15 — and only a notarised, stapled image gets the ordinary
+  "downloaded from the Internet… Open" prompt. Notarisation requires a paid
+  membership, and the exact sequence from certificate request to verifying the
+  result with `stapler` and `spctl` is written down.
+
 ## [1.1.0] - 2026-09-18
 
 ### Added

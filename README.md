@@ -117,12 +117,20 @@ quarantine flag from the new copy before putting it in place.
 
 ### Making it stop happening
 
-The fix is a Developer ID and notarisation, and nothing else is. The build
-already supports it end to end — set `DEVELOPER_ID_APPLICATION` when building,
-and `NOTARY_APPLE_ID` / `NOTARY_TEAM_ID` / `NOTARY_PASSWORD` when packaging,
-or add them as repository secrets and the release workflow will sign, notarise
-and staple on its own. Until someone pays Apple the annual fee, the steps
-above are the honest answer.
+Only one thing removes that dialog, and it is **notarisation** — which needs a
+paid Apple Developer Program membership. Signing alone does not do it:
+
+| | First launch of a downloaded copy |
+|---|---|
+| Ad-hoc signed — **what is published today** | Refused: *"Apple could not verify…"*, with only Done and Move to Bin |
+| Developer ID signed, not notarised | Still refused. A signature on its own has not been enough since macOS 10.15 |
+| Developer ID signed **and notarised** | *"…is an app downloaded from the Internet. Are you sure you want to open it?"* → **Open** |
+
+The build and the release workflow already do the whole of it — signing,
+notarising, stapling, and importing the certificate on a clean CI runner —
+given the right repository secrets. [TECHNICAL.md](TECHNICAL.md#101-distribution-and-the-gatekeeper-wall)
+has the exact steps. Until someone pays the annual fee, the instructions above
+are the honest answer.
 
 Then open Settings from the menu bar icon and turn on **Launch at login**.
 

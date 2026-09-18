@@ -437,18 +437,67 @@ quarantine attribute from the staged copy before it replaces the running one,
 so an update is never met with the dialog — verified by updating a 0.9.0 build
 to 1.0.0 from the live release and watching it relaunch.
 
-The real fix is a Developer ID and notarisation, and the pipeline is already
-written for it:
+#### What each level of signing actually gets you
+
+| State | First launch of a downloaded copy |
+|---|---|
+| Ad-hoc signed, not notarised — **where this project is** | Refused outright: *"Apple could not verify… is free of malware"*, buttons **Done** and **Move to Bin**. Only Privacy & Security → Open Anyway will do it |
+| Signed with a Developer ID, **not** notarised | Still refused. Since macOS 10.15 a Developer ID signature on its own is not enough, and the wording barely changes |
+| Signed with a Developer ID **and** notarised **and** stapled | The ordinary prompt: *"…is an app downloaded from the Internet. Are you sure you want to open it?"* with **Open** — and macOS adds that it checked for malicious software and found none |
+
+So notarisation is the step that matters, and it cannot be had without the
+paid Developer Program: a free Apple account cannot issue a Developer ID
+certificate and `notarytool` will not accept one.
+
+#### The variables
 
 | Variable | Used by | Effect |
 |---|---|---|
 | `DEVELOPER_ID_APPLICATION` | `build-app.sh`, `make-dmg.sh` | Signs the app and the image with a real identity, with a secure timestamp rather than `--timestamp=none`, which notarisation requires |
-| `NOTARY_KEYCHAIN_PROFILE` | `make-dmg.sh` | Notarises using stored credentials (`notarytool store-credentials`) |
+| `NOTARY_KEYCHAIN_PROFILE` | `make-dmg.sh` | Notarises using stored credentials (`notarytool store-credentials`) — the local route |
 | `NOTARY_APPLE_ID`, `NOTARY_TEAM_ID`, `NOTARY_PASSWORD` | `make-dmg.sh` | The same, for CI, with an app-specific password |
+| `DEVELOPER_ID_CERTIFICATE_P12`, `DEVELOPER_ID_CERTIFICATE_PASSWORD` | the workflow | The certificate itself, base64 encoded, imported into a throwaway keychain — a fresh runner has no keychain and `codesign` cannot use an identity that is not in one |
 
-Set as repository secrets, the release workflow picks them up on its own. With
-none of them present, everything still builds and publishes, ad-hoc signed,
-and the script says so rather than pretending otherwise.
+With none of them present, everything still builds and publishes, ad-hoc
+signed, and the script says so rather than pretending otherwise.
+
+#### Doing it, once enrolled
+
+```sh
+# 1. Keychain Access → Certificate Assistant → Request a Certificate from a
+#    Certificate Authority, saved to disk. Upload it at developer.apple.com
+#    under Certificates → + → Developer ID Application. Download and open the
+#    result, then confirm it is installed:
+security find-identity -v -p codesigning
+
+# 2. An app-specific password for notarytool, from appleid.apple.com, stored
+#    under a profile name:
+xcrun notarytool store-credentials notch \
+    --apple-id you@example.com --team-id TEAMID --password abcd-efgh-ijkl-mnop
+
+# 3. A signed, notarised, stapled image, locally:
+export DEVELOPER_ID_APPLICATION="Developer ID Application: Your Name (TEAMID)"
+./Scripts/build-app.sh
+NOTARY_KEYCHAIN_PROFILE=notch ./Scripts/make-dmg.sh
+```
+
+For CI, export the certificate from Keychain Access as a `.p12` with a
+password, then add the repository secrets:
+
+```sh
+base64 -i DeveloperID.p12 | pbcopy    # → DEVELOPER_ID_CERTIFICATE_P12
+```
+
+`DEVELOPER_ID_CERTIFICATE_PASSWORD`, `DEVELOPER_ID_APPLICATION`,
+`NOTARY_APPLE_ID`, `NOTARY_TEAM_ID` and `NOTARY_PASSWORD` complete the set.
+The next tag then produces an image that opens with a single **Open**.
+
+Check the result before trusting it — a notarised image says so:
+
+```sh
+xcrun stapler validate NotchIsland-x.y.z.dmg
+spctl -a -vvv -t install NotchIsland-x.y.z.dmg   # expect: accepted, source=Notarized Developer ID
+```
 
 ### 10.2 The disk image window
 
