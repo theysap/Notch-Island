@@ -2,10 +2,11 @@
 #
 # Packages dist/NotchIsland.app into a disk image.
 #
-# Deliberately a plain image — application plus a link to /Applications. Laying
-# out a window with a background picture means driving Finder through Apple
-# events, which asks the person building for automation permission and fails
-# outright on a build machine.
+# The window's background picture and icon layout are committed under
+# Scripts/dmg and simply copied in. Arranging them means driving Finder through
+# Apple events, which asks for automation permission and has no chance of
+# working on a build machine — so that is done once, by hand, with
+# Scripts/make-dmg-layout.sh.
 
 set -euo pipefail
 
@@ -33,26 +34,77 @@ step "Staging ${APP_NAME} ${VERSION}"
 cp -R "${APP}" "${STAGING}/"
 ln -s /Applications "${STAGING}/Applications"
 
-# Gives the person a copy of the terms without having to open the bundle.
-cp LICENSE "${STAGING}/LICENSE.txt"
+# The window: a background picture, and the layout Finder was driven into
+# once by Scripts/make-dmg-layout.sh. Both are committed, so no Finder and no
+# automation permission is needed here or on a build machine.
+mkdir "${STAGING}/.background"
+cp Scripts/dmg/background.tiff "${STAGING}/.background/"
+cp Scripts/dmg/DS_Store "${STAGING}/.DS_Store"
 
 step "Creating disk image"
 rm -f "${DMG}"
-# ULFO is LZFSE-compressed. `hdiutil create` is deprecated as of macOS 27 in
-# favour of this.
-diskutil image create from \
-    --format ULFO \
-    --volumeName "${APP_NAME} ${VERSION}" \
-    "${STAGING}" \
-    "${DMG}" > /dev/null
+# The volume name is fixed rather than versioned: the background is referenced
+# by an alias that embeds the name, and changing it breaks the picture.
+#
+# `hdiutil create` warns that it is deprecated in favour of `diskutil image
+# create from`, and this used to use exactly that — but diskutil's copy
+# **silently drops .DS_Store**, which is the window layout, so the image came
+# out looking like a plain folder. Verified both ways: diskutil produced an
+# image with no .DS_Store at all, hdiutil preserves it. Until diskutil can
+# either keep it or convert a writable image to a compressed one, this has to
+# stay. ULFO is LZFSE-compressed.
+hdiutil create \
+    -srcfolder "${STAGING}" \
+    -volname "${APP_NAME}" \
+    -format ULFO \
+    -ov "${DMG}" 2>&1 | grep -v "deprecated" || true
 
 if [ -n "${DEVELOPER_ID_APPLICATION:-}" ]; then
     step "Signing disk image"
-    codesign --force --sign "${DEVELOPER_ID_APPLICATION}" "${DMG}"
+    codesign --force --timestamp --sign "${DEVELOPER_ID_APPLICATION}" "${DMG}"
+fi
+
+# Notarisation is what stops Gatekeeper refusing the app on someone else's
+# Mac. Without it, every download is met with "Apple could not verify
+# NotchIsland is free of malware", and the only way past is Privacy & Security
+# → Open Anyway. It needs a paid Developer ID; the build works without one and
+# simply skips this.
+#
+# Provide either a stored profile:
+#   xcrun notarytool store-credentials notch --apple-id … --team-id … --password …
+#   NOTARY_KEYCHAIN_PROFILE=notch ./Scripts/make-dmg.sh
+# or the three values directly, which is what CI does:
+#   NOTARY_APPLE_ID, NOTARY_TEAM_ID, NOTARY_PASSWORD  (an app-specific password)
+if [ -n "${NOTARY_KEYCHAIN_PROFILE:-}" ] || [ -n "${NOTARY_APPLE_ID:-}" ]; then
+    step "Notarising (this waits on Apple, usually a few minutes)"
+
+    if [ -n "${NOTARY_KEYCHAIN_PROFILE:-}" ]; then
+        xcrun notarytool submit "${DMG}" \
+            --keychain-profile "${NOTARY_KEYCHAIN_PROFILE}" --wait
+    else
+        xcrun notarytool submit "${DMG}" \
+            --apple-id "${NOTARY_APPLE_ID}" \
+            --team-id "${NOTARY_TEAM_ID}" \
+            --password "${NOTARY_PASSWORD}" --wait
+    fi
+
+    # Stapling puts the ticket inside the image, so it opens on a Mac that is
+    # offline as well as on one that is not.
+    step "Stapling"
+    xcrun stapler staple "${DMG}"
+    xcrun stapler validate "${DMG}"
+elif [ -z "${DEVELOPER_ID_APPLICATION:-}" ]; then
+    echo "    not notarised: Gatekeeper will refuse this on first launch."
+    echo "    See the Distribution section of TECHNICAL.md."
 fi
 
 step "Verifying"
 diskutil image info "${DMG}" > /dev/null
+# The window is only a window if these two travelled with it.
+if ! hdiutil imageinfo "${DMG}" > /dev/null 2>&1; then
+    echo "Disk image did not verify." >&2
+    exit 1
+fi
 
 step "Built ${DMG}"
 du -h "${DMG}" | awk '{print "    size: " $1}'

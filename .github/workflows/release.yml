@@ -37,6 +37,14 @@ jobs:
         run: ./Scripts/build-app.sh
 
       - name: Package disk image
+        # Signing and notarisation happen only if the secrets exist. Without
+        # them the image is still built and published, just ad-hoc signed —
+        # which Gatekeeper refuses on first launch. See TECHNICAL.md.
+        env:
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
         run: ./Scripts/make-dmg.sh
 
       - name: Checksums

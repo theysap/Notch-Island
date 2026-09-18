@@ -414,6 +414,72 @@ Releasing is a tag push. `.github/workflows/release.yml` checks the tag matches
 `SHA256SUMS.txt` and publishes all of it — which is exactly what the updater
 expects to find.
 
+### 10.1 Distribution, and the Gatekeeper wall
+
+Without a Developer ID, **every first launch on every other Mac is refused**.
+Measured, rather than assumed: take the published disk image, give it the
+quarantine attribute a browser would, mount it, copy the app out, and
+
+```
+codesign -dvv  →  Signature=adhoc      (no authority)
+spctl -a -vvv  →  rejected
+```
+
+which surfaces as *"Apple could not verify NotchIsland is free of malware."*
+The dialog offers only **Done** and **Move to Bin**, and the Control-click →
+Open bypass was removed in macOS 15. What remains for a user is System
+Settings → Privacy & Security → **Open Anyway**, or
+`xattr -dr com.apple.quarantine`, which was confirmed to let the app launch
+normally.
+
+This affects the **first install only**. The in-app updater strips the
+quarantine attribute from the staged copy before it replaces the running one,
+so an update is never met with the dialog — verified by updating a 0.9.0 build
+to 1.0.0 from the live release and watching it relaunch.
+
+The real fix is a Developer ID and notarisation, and the pipeline is already
+written for it:
+
+| Variable | Used by | Effect |
+|---|---|---|
+| `DEVELOPER_ID_APPLICATION` | `build-app.sh`, `make-dmg.sh` | Signs the app and the image with a real identity, with a secure timestamp rather than `--timestamp=none`, which notarisation requires |
+| `NOTARY_KEYCHAIN_PROFILE` | `make-dmg.sh` | Notarises using stored credentials (`notarytool store-credentials`) |
+| `NOTARY_APPLE_ID`, `NOTARY_TEAM_ID`, `NOTARY_PASSWORD` | `make-dmg.sh` | The same, for CI, with an app-specific password |
+
+Set as repository secrets, the release workflow picks them up on its own. With
+none of them present, everything still builds and publishes, ad-hoc signed,
+and the script says so rather than pretending otherwise.
+
+### 10.2 The disk image window
+
+The image is not a bare folder: it has a background picture, a fixed window
+size and the two icons positioned either side of an arrow.
+
+Finder is the only thing that can write that layout, and it writes it into a
+`.DS_Store`. Driving Finder means Apple events, which ask for permission and
+have no hope of working on a build machine — so it is done **once, by hand**,
+with `Scripts/make-dmg-layout.sh`, and the resulting `.DS_Store` is committed
+under `Scripts/dmg/`. `make-dmg.sh` then just copies it in. The background is
+rendered by `Scripts/make-dmg-background.swift` into a TIFF carrying both 1x
+and 2x representations, and is committed for the same reason.
+
+Three things about this were only learned by doing it:
+
+- **`diskutil image create from` silently drops `.DS_Store`.** The image built
+  fine and opened as a plain folder with no background at all. `hdiutil create
+  -srcfolder` preserves it, so the script uses that despite the deprecation
+  warning. `diskutil` has no way to convert a writable image to a compressed
+  one either, so there is no non-deprecated path today.
+- **The volume name is fixed, not versioned.** The background is referenced by
+  an alias that embeds the volume name, so `NotchIsland 1.0.0` would break the
+  picture the moment the version changed.
+- **Finder will not hide its toolbar** on macOS 26 however politely
+  AppleScript asks, and there is no text-colour property for icon labels —
+  `icon view options` offers text *size*, label position, a background picture
+  and a background colour, and nothing else. Since Finder draws those labels
+  in a dark grey regardless of appearance, a dark background makes the two
+  names nearly unreadable. That is why the window is light.
+
 ## 11. Testing without a screen
 
 63 tests across 13 suites, run with `./Scripts/test.sh`. Everything with real

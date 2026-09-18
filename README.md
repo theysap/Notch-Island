@@ -80,11 +80,49 @@ On an external monitor, or with the lid closed, nothing appears.
 ## Installing
 
 Download the `.dmg` from [Releases](../../releases), open it, and drag
-NotchIsland to Applications.
+NotchIsland into Applications.
 
-**The first launch needs a right-click.** The app is signed ad-hoc rather than
-with a paid Developer ID, so Gatekeeper will not open it on a double-click.
-Right-click the app → **Open** → **Open**. This is needed once.
+### The first launch is blocked. Here is how to get past it
+
+macOS will refuse to open it, with *"Apple could not verify 'NotchIsland' is
+free of malware that may harm your Mac or compromise your privacy."* The only
+buttons are **Done** and **Move to Bin**.
+
+That wording is alarming and the dialog offers no way forward, so to be plain
+about what it means: macOS is not reporting that it found anything. It is
+reporting that it cannot tell who built the app. NotchIsland is **ad-hoc
+signed and not notarised**, because notarising requires a paid Apple Developer
+ID. `codesign -dvv` reports `Signature=adhoc` with no authority, and `spctl -a`
+returns `rejected` — so Gatekeeper refuses, exactly as designed. The
+Control-click → Open shortcut that used to bypass this was removed in macOS
+15.
+
+**To open it, once:**
+
+1. Double-click NotchIsland, and click **Done** on the warning.
+2. Open **System Settings → Privacy & Security** and scroll down to Security.
+   It now says *"NotchIsland was blocked to protect your Mac."*
+3. Click **Open Anyway**, authenticate, and confirm.
+
+Or, if you would rather do it in one line — this is exactly what the steps
+above amount to, removing the quarantine flag macOS attaches to downloads:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/NotchIsland.app
+```
+
+**This is a first-launch problem only.** Updates installed from the app's own
+menu are not blocked: the app is already trusted, and the updater clears the
+quarantine flag from the new copy before putting it in place.
+
+### Making it stop happening
+
+The fix is a Developer ID and notarisation, and nothing else is. The build
+already supports it end to end — set `DEVELOPER_ID_APPLICATION` when building,
+and `NOTARY_APPLE_ID` / `NOTARY_TEAM_ID` / `NOTARY_PASSWORD` when packaging,
+or add them as repository secrets and the release workflow will sign, notarise
+and staple on its own. Until someone pays Apple the annual fee, the steps
+above are the honest answer.
 
 Then open Settings from the menu bar icon and turn on **Launch at login**.
 

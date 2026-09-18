@@ -60,6 +60,10 @@ swift Scripts/make-icon.swift "${ICONSET}" > /dev/null
 iconutil -c icns "${ICONSET}" -o "${RESOURCES}/AppIcon.icns"
 rm -rf "${ICONSET}"
 
+# The terms travel with the application. They used to sit loose in the disk
+# image, which cluttered a window that is now down to two icons and an arrow.
+cp LICENSE "${RESOURCES}/LICENSE.txt"
+
 step "Writing Info.plist"
 cat > "${CONTENTS}/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -110,19 +114,23 @@ printf 'APPL????' > "${CONTENTS}/PkgInfo"
 step "Signing"
 if [ -n "${DEVELOPER_ID_APPLICATION:-}" ]; then
     IDENTITY="${DEVELOPER_ID_APPLICATION}"
+    # Notarisation refuses anything without a secure timestamp, so a real
+    # identity gets one. An ad-hoc signature cannot have one at all.
+    TIMESTAMP="--timestamp"
     echo "    identity: ${IDENTITY}"
 else
     IDENTITY="-"
+    TIMESTAMP="--timestamp=none"
     echo "    ad-hoc (set DEVELOPER_ID_APPLICATION to sign for distribution)"
 fi
 
 # Nested code has to be signed before the bundle that contains it, or the outer
 # signature seals a hash that is about to change.
-codesign --force --timestamp=none --options runtime --sign "${IDENTITY}" \
+codesign --force ${TIMESTAMP} --options runtime --sign "${IDENTITY}" \
     "${FRAMEWORKS}/libNotchMediaBridge.dylib"
-codesign --force --timestamp=none --options runtime --sign "${IDENTITY}" \
+codesign --force ${TIMESTAMP} --options runtime --sign "${IDENTITY}" \
     "${MACOS_DIR}/${APP_NAME}"
-codesign --force --timestamp=none --options runtime --sign "${IDENTITY}" "${APP}"
+codesign --force ${TIMESTAMP} --options runtime --sign "${IDENTITY}" "${APP}"
 
 codesign --verify --deep --strict "${APP}"
 

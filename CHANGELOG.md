@@ -5,6 +5,49 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-09-18
+
+### Added
+
+- The disk image is now an install window rather than a bare folder: a
+  background picture, a fixed window size, and the app and Applications either
+  side of an arrow. The layout is a `.DS_Store` that Finder was driven into
+  once by `Scripts/make-dmg-layout.sh` and which is committed, so no build
+  machine ever needs a Finder or an automation prompt.
+- Signing and notarisation are wired through the build and the release
+  workflow. Set `DEVELOPER_ID_APPLICATION` and the `NOTARY_*` values — as
+  repository secrets, if you like — and the image is signed, notarised and
+  stapled. With none of them set everything still builds, ad-hoc signed, and
+  says so.
+- `TECHNICAL.md` gains sections on distribution and on how the disk image
+  window is made, including what Gatekeeper does to an unnotarised app and
+  what was measured to establish it.
+
+### Fixed
+
+- **The install instructions were wrong.** They said to Control-click → Open,
+  which macOS 15 removed. The first launch is refused with "Apple could not
+  verify NotchIsland is free of malware", offering only Done and Move to Bin.
+  The README now says what that dialog actually means — macOS cannot tell who
+  built the app, not that it found something — and gives the two ways past it:
+  System Settings → Privacy & Security → Open Anyway, or removing the
+  quarantine flag. It also notes that this is a first-launch problem only,
+  because the updater clears quarantine from the copy it installs.
+- The version in the menu and Settings is the release version, with the
+  commit-derived build number no longer shown.
+
+### Changed
+
+- `make-dmg.sh` builds the image with `hdiutil create` again.
+  `diskutil image create from` silently drops `.DS_Store`, which is the window
+  layout, so the styled image came out looking like a plain folder.
+- The disk image window is light. Finder draws icon labels in a dark grey and
+  exposes no way to change their colour — its icon view offers text size,
+  label position, a background picture and a background colour, and nothing
+  else — so on a dark background the two names were nearly unreadable.
+- The licence now travels inside the app bundle rather than loose in the disk
+  image, which keeps the install window to two icons and an arrow.
+
 ## [1.0.0] - 2026-09-18
 
 First release.
