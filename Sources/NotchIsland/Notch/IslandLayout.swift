@@ -24,8 +24,25 @@ struct IslandLayout: Equatable, Sendable {
         )
     }
 
+    /// The artwork and the column of text, timeline and controls beside it,
+    /// which sit below the strip that runs either side of the camera housing.
+    var expandedBodyHeight: CGFloat { 104 }
+
+    var expandedBodyTopPadding: CGFloat { 4 }
+
+    /// Breathing room under the controls. Deliberately small: the island is
+    /// hung from the top of the screen, so anything left over here reads as
+    /// the panel being too tall rather than as margin.
+    var expandedBodyBottomPadding: CGFloat { 10 }
+
+    /// Tall enough for its contents and no taller. The top strip is as tall as
+    /// the housing, which is measured per machine, so this follows it.
     var expandedSize: CGSize {
-        CGSize(width: 384 + shoulderRadius * 2, height: 168)
+        CGSize(
+            width: 384 + shoulderRadius * 2,
+            height: metrics.notchHeight + expandedBodyTopPadding + expandedBodyHeight
+                + expandedBodyBottomPadding
+        )
     }
 
     func size(expanded: Bool) -> CGSize {

@@ -46,6 +46,10 @@ final class MediaController {
     private var artworkCache: [URL: NSImage] = [:]
     private static let artworkCacheLimit = 24
 
+    /// Cache keys, least recently used first, so a full cache drops its
+    /// coldest cover rather than everything it holds.
+    private var artworkCacheOrder: [URL] = []
+
     // MARK: - Lifecycle
 
     func start() {
@@ -314,6 +318,7 @@ final class MediaController {
         guard key != artworkKey, key != artworkInFlightKey else { return }
 
         if let cached = artworkCache[url] {
+            noteArtworkUse(url)
             artworkKey = key
             artwork = cached
             artworkIsSourceIcon = false
@@ -356,15 +361,23 @@ final class MediaController {
     }
 
     private func storeArtwork(_ image: NSImage, for url: URL, key: String) {
-        if artworkCache.count >= Self.artworkCacheLimit {
-            artworkCache.removeAll(keepingCapacity: true)
-        }
         artworkCache[url] = image
+        noteArtworkUse(url)
+
+        while artworkCache.count > Self.artworkCacheLimit, !artworkCacheOrder.isEmpty {
+            artworkCache.removeValue(forKey: artworkCacheOrder.removeFirst())
+        }
 
         artworkKey = key
         artwork = image
         artworkIsSourceIcon = false
         palette = ArtworkPalette.extract(from: image)
+    }
+
+    /// Marks a cover as the most recently used, for eviction order.
+    private func noteArtworkUse(_ url: URL) {
+        artworkCacheOrder.removeAll { $0 == url }
+        artworkCacheOrder.append(url)
     }
 
     private func applyArtwork(key: String, data: Data) {

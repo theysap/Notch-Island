@@ -5,6 +5,19 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.2] - 2026-09-18
+
+### Fixed
+
+- The expanded panel had roughly 20pt of dead space under the transport
+  controls. Its height was a constant 168pt while its contents came to 145.5pt
+  on this machine. The height is now derived from what is actually in it —
+  the top strip, which is as tall as the camera housing and therefore measured
+  per machine, plus the body and a deliberate 10pt margin.
+- The artwork cache emptied itself completely on reaching 24 entries, so the
+  cover that had just been on screen was as likely to be thrown away as the
+  oldest one. It now evicts least-recently-used.
+
 ## [0.16.1] - 2026-09-18
 
 ### Fixed

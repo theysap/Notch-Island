@@ -19,6 +19,9 @@ struct ExpandedPlayerView: View {
         VStack(spacing: 0) {
             topStrip
             mainRow
+
+            // Exactly `expandedBodyBottomPadding`, since the island is sized
+            // to its contents. It absorbs rounding rather than dead space.
             Spacer(minLength: 0)
         }
     }
@@ -87,9 +90,9 @@ struct ExpandedPlayerView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.top, 2)
             }
-            .frame(height: 104)
+            .frame(height: layout.expandedBodyHeight)
         }
         .padding(.horizontal, 18)
-        .padding(.top, 4)
+        .padding(.top, layout.expandedBodyTopPadding)
     }
 }
