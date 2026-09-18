@@ -99,6 +99,10 @@ cat > "${CONTENTS}/Info.plist" <<PLIST
     <true/>
     <key>NSHumanReadableCopyright</key>
     <string>MIT licensed. See LICENSE.</string>
+    <!-- Shown in the Automation prompt. Without this key macOS denies the
+         Apple event instead of asking, and library artwork never loads. -->
+    <key>NSAppleEventsUsageDescription</key>
+    <string>${APP_NAME} asks Music for the artwork of tracks in your library, and for where playback has actually got to. Both are things macOS will not report any other way.</string>
     <key>NSSupportsAutomaticTermination</key>
     <false/>
     <key>NSSupportsSuddenTermination</key>
@@ -126,13 +130,31 @@ fi
 
 # Nested code has to be signed before the bundle that contains it, or the outer
 # signature seals a hash that is about to change.
+# The hardened runtime blocks Apple events unless the app carries the
+# automation entitlement, and a bundle signature does not cover the inner
+# executable's entitlements — so both are signed with it.
+ENTITLEMENTS="Resources/${APP_NAME}.entitlements"
+
+# The bridge library is loaded by the Perl host and sends no Apple events, so
+# it stays entitlement-free.
 codesign --force ${TIMESTAMP} --options runtime --sign "${IDENTITY}" \
     "${FRAMEWORKS}/libNotchMediaBridge.dylib"
-codesign --force ${TIMESTAMP} --options runtime --sign "${IDENTITY}" \
-    "${MACOS_DIR}/${APP_NAME}"
-codesign --force ${TIMESTAMP} --options runtime --sign "${IDENTITY}" "${APP}"
+codesign --force ${TIMESTAMP} --options runtime --entitlements "${ENTITLEMENTS}" \
+    --sign "${IDENTITY}" "${MACOS_DIR}/${APP_NAME}"
+codesign --force ${TIMESTAMP} --options runtime --entitlements "${ENTITLEMENTS}" \
+    --sign "${IDENTITY}" "${APP}"
 
 codesign --verify --deep --strict "${APP}"
+
+# A missing automation entitlement is invisible until someone plays a library
+# track and gets the Music icon instead of a cover, so it is checked here.
+# grep, not `plutil -extract`: that reads dots in the key as a key path and
+# goes looking for a nested "com" -> "apple" -> ... dictionary that is not there.
+if ! codesign -d --entitlements - --xml "${APP}" 2>/dev/null \
+    | grep -q "com.apple.security.automation.apple-events"; then
+    echo "Signed bundle is missing com.apple.security.automation.apple-events" >&2
+    exit 1
+fi
 
 step "Built ${APP}"
 du -sh "${APP}" | awk '{print "    size: " $1}'

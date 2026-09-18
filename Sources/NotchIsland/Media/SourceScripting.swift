@@ -18,9 +18,14 @@ import Foundation
 /// content item went on reporting its original anchor, unchanged — so the
 /// island's playhead carried on from where it thought it was.
 ///
-/// Both need Automation permission, which macOS asks for once per source. A
-/// refusal is remembered for the life of the process so the user is not asked
-/// again and again, and everything falls back to what MediaRemote provides.
+/// Both need Automation permission, which macOS asks for once per source. The
+/// app must be signed with `com.apple.security.automation.apple-events` and
+/// carry `NSAppleEventsUsageDescription` for that prompt to appear at all —
+/// under the hardened runtime, an app missing either gets -1743 and the user is
+/// never asked. See `Resources/NotchIsland.entitlements`.
+///
+/// A refusal backs the source off rather than abandoning it, and everything
+/// falls back to what MediaRemote provides in the meantime.
 actor SourceScripting {
     static let shared = SourceScripting()
 
@@ -33,9 +38,27 @@ actor SourceScripting {
         return scriptable.contains(bundleIdentifier)
     }
 
-    /// Set when the user refuses, or when the source has no dictionary. Asking
-    /// again would only produce more prompts.
-    private var refused: Set<String> = []
+    /// When a source was last refused.
+    ///
+    /// A refusal is not permanent: the user can grant Automation in System
+    /// Settings at any time, and an app that gave up for good would go on
+    /// showing the Music icon until it was relaunched. macOS only ever shows
+    /// the prompt once — after that a denied event fails immediately and
+    /// silently — so retrying costs nothing and picks the permission up as
+    /// soon as it is granted.
+    private var refusedAt: [String: Date] = [:]
+
+    /// How long to wait before trying a refused source again.
+    private static let refusalCooldown: TimeInterval = 60
+
+    private func isRefused(_ bundleIdentifier: String) -> Bool {
+        guard let at = refusedAt[bundleIdentifier] else { return false }
+        guard Date.now.timeIntervalSince(at) < Self.refusalCooldown else {
+            refusedAt.removeValue(forKey: bundleIdentifier)
+            return false
+        }
+        return true
+    }
 
     /// Where the source says it has got to, which is the only account of a
     /// seek the user made in the source's own window.
@@ -69,7 +92,7 @@ actor SourceScripting {
     }
 
     private func run(_ source: String, for bundleIdentifier: String) -> NSAppleEventDescriptor? {
-        guard !refused.contains(bundleIdentifier) else { return nil }
+        guard !isRefused(bundleIdentifier) else { return nil }
         guard let script = NSAppleScript(source: source) else { return nil }
 
         var error: NSDictionary?
@@ -80,9 +103,11 @@ actor SourceScripting {
             switch code {
             case -1743, -1744:
                 // The user said no, or has not been asked and cannot be.
-                refused.insert(bundleIdentifier)
+                // Backed off rather than abandoned, so granting it later works
+                // without a relaunch.
+                refusedAt[bundleIdentifier] = .now
                 AppLog.media.notice(
-                    "Automation refused for \(bundleIdentifier, privacy: .public); falling back to MediaRemote"
+                    "Automation refused for \(bundleIdentifier, privacy: .public) (\(code)); falling back to MediaRemote, retrying in \(Int(Self.refusalCooldown))s"
                 )
             case -1728:
                 // Nothing is loaded in the source. Ordinary, not a failure.
@@ -94,6 +119,7 @@ actor SourceScripting {
             return nil
         }
 
+        refusedAt.removeValue(forKey: bundleIdentifier)
         return result
     }
 }

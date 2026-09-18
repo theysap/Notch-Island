@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        The app is signed with the hardened runtime, which blocks Apple events
+        outright unless this entitlement is present. Without it macOS answers
+        every event with errAEEventNotPermitted (-1743) and never shows the
+        Automation prompt, so the user has nothing to grant.
+
+        Apple Music is the only target. It is the sole way to get the cover for
+        a track in the library or a user playlist — MediaRemote publishes an
+        opaque identifier and no bytes for those — and the only account of a
+        seek made in Music's own window. See TECHNICAL.md.
+    -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+</dict>
+</plist>

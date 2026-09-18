@@ -214,9 +214,38 @@ So artwork is resolved per source, in `SourceArtwork`:
 | Source | Where the cover comes from |
 |---|---|
 | Apple Music, catalogue | The https URL MediaRemote publishes |
-| Apple Music, library | AppleScript: `raw data of artwork 1 of current track` |
+| Apple Music, library or a user playlist | AppleScript: `raw data of artwork 1 of current track` |
 | VLC | VLC's own cache, below |
 | Browsers | Nothing is available; the browser's icon is shown |
+
+Which of the first two applies is decided entirely by what
+`kMRMediaRemoteNowPlayingInfoArtworkIdentifier` looks like: an `https://` value
+is a link to fetch, anything else — `af179ea681815796#tr:46c3f80a25e79aee` and
+the like — is an opaque identifier with no bytes behind it anywhere. Only the
+catalogue publishes links, so *everything* in the library and in user playlists
+depends on the AppleScript route working.
+
+#### The entitlement that route needs
+
+The bundle is signed `--options runtime`. The hardened runtime blocks Apple
+events outright unless the binary carries
+**`com.apple.security.automation.apple-events`**, and the Automation prompt is
+only ever shown for an app that also declares
+**`NSAppleEventsUsageDescription`**. An app missing either gets
+`errAEEventNotPermitted` (-1743) on every event, with no prompt for the user to
+grant — indistinguishable, from inside the app, from a refusal.
+
+This is what made library artwork look like a MediaRemote limitation when it
+was a packaging one: the AppleScript itself was correct all along and returns
+an 800×800 PNG when it is allowed to run. `Scripts/build-app.sh` writes the
+usage string into `Info.plist`, signs with `Resources/NotchIsland.entitlements`,
+and then *verifies the entitlement survived into the signature* — a missing one
+is otherwise invisible until someone plays a library track.
+
+A refusal is backed off for a minute rather than remembered for the life of the
+process, so granting the permission in System Settings takes effect without a
+relaunch. macOS shows the prompt only once and fails silently afterwards, so
+retrying costs nothing.
 
 **VLC** extracts the cover itself and writes it to
 `~/Library/Caches/org.videolan.vlc/art/artistalbum/<artist>/<album>/art.jpg`,

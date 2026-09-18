@@ -5,6 +5,36 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-09-18
+
+### Fixed
+
+- **Apple Music artwork never appeared for anything in your library.** Covers
+  loaded for an album opened from search and for nothing else — a track played
+  from a user playlist, or from an album added to the library, showed the Music
+  icon instead.
+
+  MediaRemote publishes an https artwork link for catalogue tracks and an
+  opaque identifier with no bytes anywhere for everything else, so library
+  covers can only come from asking Music itself over AppleScript. The app was
+  asking, and macOS was refusing every time: the bundle is signed with the
+  hardened runtime, which blocks Apple events outright unless the binary
+  carries `com.apple.security.automation.apple-events`, and it carried no
+  entitlements at all. With no `NSAppleEventsUsageDescription` either, there
+  was no Automation prompt to grant — the event just failed with -1743, and the
+  island fell back to the source icon.
+
+  The app is now signed with that entitlement and ships the usage string, so
+  macOS asks once and library artwork loads. Granting it also fixes the
+  playhead drifting after a seek made inside Music, which needs the same
+  permission. The build refuses to produce a bundle whose signature is missing
+  the entitlement, so this cannot regress unnoticed.
+- Refusing Automation no longer disables it for the rest of the session.
+  A refusal was remembered until the app was quit, so granting the permission
+  in System Settings appeared to do nothing. It is now retried a minute later,
+  which costs nothing — macOS only shows the prompt once — and picks the
+  permission up as soon as it is given.
+
 ## [1.1.1] - 2026-09-18
 
 ### Fixed

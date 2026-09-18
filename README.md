@@ -162,6 +162,10 @@ keeps working, with the specific feature it buys missing.
 | **Automation → Music** | The first time an Apple Music track's cover cannot be found any other way | Two things MediaRemote refuses to report: the artwork for tracks in your library, and where Music has actually got to after you drag its own scrubber | Library tracks show the Music icon instead of a cover, and the playhead can drift after you seek inside Music |
 | **Login item** | You turn on *Launch at login* | Starts the app when you log in, through `SMAppService` | Start it yourself |
 
+Changed your mind either way? System Settings → Privacy & Security →
+**Automation** → NotchIsland → Music. Turning it on takes effect within a
+minute; the app does not need restarting.
+
 That is the whole list. In particular:
 
 - **No Accessibility.** The pointer is watched with ordinary mouse-location
