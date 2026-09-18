@@ -5,6 +5,39 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-09-18
+
+### Added
+
+- The island now shows what is already playing when the app starts, instead of
+  waiting for the next track change.
+
+  `MRMediaRemoteGetNowPlayingInfo` hands its dictionary over once, when it has
+  changed, and answers nobody until it changes again — and the `...ForClient`,
+  `...ForPlayer` and `...ForOrigin` variants are all gated the same way
+  (measured: six consecutive attempts on a settled track, none answered).
+  `+[MRNowPlayingRequest localNowPlayingItem]` is not a request to the daemon
+  at all: it reads the local now-playing item synchronously, it is not gated,
+  and paired with `MRContentItemGetNowPlayingInfo` it returns the same 27-key
+  dictionary. Measured on a track that had been playing for minutes: answered
+  every time, and it follows track changes.
+
+### Fixed
+
+- The playhead now follows a seek made inside the source application. The
+  helper re-reads the local state on its poll, so an elapsed time that moves
+  without warning is picked up within a poll — measured at ~1s for a seek made
+  by another process entirely. MediaRemote reports such a seek in no other
+  way: no notification, no dictionary, no handler call.
+
+### Changed
+
+- Track metadata is streamed by the long-lived helper rather than fetched by a
+  burst of short-lived ones. The one-shot helper remains as the fallback for a
+  source the local read cannot see, and now tries the local read first itself.
+- The helper seeds its playing state synchronously at startup, so the app is
+  no longer briefly told "not playing" before the daemon's first answer lands.
+
 ## [0.15.2] - 2026-09-18
 
 ### Fixed

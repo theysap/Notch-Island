@@ -22,6 +22,7 @@
 #import <Foundation/Foundation.h>
 
 #include <dlfcn.h>
+#include <objc/message.h>
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
@@ -40,6 +41,7 @@ typedef void (*MRSetWantsNotifications)(BOOL);
 typedef Boolean (*MRSendCommand)(int, NSDictionary *);
 typedef void (*MRSetElapsedTime)(double);
 typedef NSString *(*MRClientGetString)(id);
+typedef CFDictionaryRef (*MRContentItemGetInfo)(void *);
 
 /// Commands understood by `MRMediaRemoteSendCommand`. Only the transport
 /// subset the player actually exposes is listed.
@@ -64,6 +66,8 @@ static struct {
     MRClientGetString clientBundleIdentifier;
     MRClientGetString clientParentBundleIdentifier;
     MRClientGetString clientDisplayName;
+    MRContentItemGetInfo contentItemGetInfo;
+    Class nowPlayingRequest;
 } MR;
 
 static BOOL NMBLoadMediaRemote(void) {
@@ -89,8 +93,12 @@ static BOOL NMBLoadMediaRemote(void) {
     NMB_BIND(clientParentBundleIdentifier, MRClientGetString,
              "MRNowPlayingClientGetParentAppBundleIdentifier");
     NMB_BIND(clientDisplayName, MRClientGetString, "MRNowPlayingClientGetDisplayName");
+    NMB_BIND(contentItemGetInfo, MRContentItemGetInfo, "MRContentItemGetNowPlayingInfo");
 
 #undef NMB_BIND
+
+    // The ungated read: see NMBLocalNowPlayingInfo.
+    MR.nowPlayingRequest = NSClassFromString(@"MRNowPlayingRequest");
 
     // Everything else degrades gracefully, but without these three there is
     // nothing worth streaming.
@@ -333,6 +341,82 @@ static NSDictionary *NMBBuildPayload(NSDictionary *info, id client, BOOL isPlayi
     return payload;
 }
 
+#pragma mark - The ungated read
+
+/// Signature of the last state sent, so an unchanged track is not resent on
+/// every poll.
+static NSString *gLastStateSignature = nil;
+
+/// Reads the now-playing dictionary straight out of MediaRemote's local state.
+///
+/// Every *asking* variant is gated. `MRMediaRemoteGetNowPlayingInfo` hands its
+/// dictionary over once, when it has changed, and answers nobody until it
+/// changes again; `...ForClient`, `...ForPlayer` and `...ForOrigin` behave the
+/// same way. Measured on a track that had been playing for minutes: six
+/// consecutive attempts, none answered.
+///
+/// `+[MRNowPlayingRequest localNowPlayingItem]` is not a request to the daemon
+/// at all. It reads the local now-playing item synchronously, and is not
+/// gated: measured on that same settled track, it answered every time with all
+/// 27 keys, and it picks up track changes within one poll. This is what makes
+/// it possible to know what is playing when the app starts part-way through a
+/// track.
+///
+/// `MRContentItemGetNowPlayingInfo` follows Core Foundation's *Get* rule and
+/// returns +0 — verified by calling it 100,000 times without releasing the
+/// result, which moved RSS by 144KB — so the result is bridged without
+/// transferring ownership.
+static NSDictionary *NMBLocalNowPlayingInfo(void) {
+    if (MR.nowPlayingRequest == nil || MR.contentItemGetInfo == NULL) {
+        return nil;
+    }
+
+    id item = ((id (*)(Class, SEL))objc_msgSend)(MR.nowPlayingRequest,
+                                                 sel_registerName("localNowPlayingItem"));
+    if (item == nil) {
+        return nil;
+    }
+
+    NSDictionary *info =
+        (__bridge NSDictionary *)MR.contentItemGetInfo((__bridge void *)item);
+    return info.count > 0 ? info : nil;
+}
+
+/// Emits the current track, read locally.
+///
+/// Returns whether metadata could be read at all — not whether anything was
+/// sent, since an unchanged track is deliberately silent. A NO means the
+/// caller should fall back on asking the daemon.
+static BOOL NMBEmitLocalState(id client) {
+    NSDictionary *info = NMBLocalNowPlayingInfo();
+    if (info == nil) {
+        return NO;
+    }
+
+    NSDictionary *payload = NMBBuildPayload(info, client, gLastKnownIsPlaying);
+    if (payload == nil) {
+        return NO;
+    }
+
+    // The elapsed time and its timestamp are in here deliberately: together
+    // they are the playhead anchor, and they change when someone seeks inside
+    // the source application. That is the only report of such a seek that
+    // MediaRemote makes — it sends no notification for one.
+    NSString *signature =
+        [NSString stringWithFormat:@"%@|%@|%@|%@|%@|%@", payload[@"trackIdentifier"] ?: @"",
+                                   payload[@"title"] ?: @"", payload[@"isPlaying"],
+                                   payload[@"elapsedTime"] ?: @"", payload[@"timestamp"] ?: @"",
+                                   payload[@"duration"] ?: @""];
+    if ([signature isEqualToString:gLastStateSignature]) {
+        return YES;
+    }
+    gLastStateSignature = signature;
+
+    NMBEmit(@{@"type": @"state", @"payload": payload});
+    NMBEmitArtwork(info, payload[@"trackIdentifier"] ?: payload[@"title"]);
+    return YES;
+}
+
 #pragma mark - One-shot mode
 
 /// Fetches the now-playing dictionary once, prints it, and exits.
@@ -384,11 +468,19 @@ static void NMBFetchOnce(void) {
         }
     };
 
-    MR.getInfo(dispatch_get_main_queue(), ^(NSDictionary *fetched) {
-        info = fetched;
+    // The ungated read first: it answers whether or not anything has changed,
+    // so the fetch below is only needed for whatever it cannot see.
+    NSDictionary *local = NMBLocalNowPlayingInfo();
+    if (local != nil) {
+        info = local;
         haveInfo = YES;
-        checkComplete();
-    });
+    } else {
+        MR.getInfo(dispatch_get_main_queue(), ^(NSDictionary *fetched) {
+            info = fetched;
+            haveInfo = YES;
+            checkComplete();
+        });
+    }
 
     MR.getClient(dispatch_get_main_queue(), ^(id fetched) {
         client = fetched;
@@ -415,9 +507,9 @@ static void NMBFetchOnce(void) {
 
 /// Reports who is playing and whether they are playing.
 ///
-/// This carries no track metadata: the streaming process cannot obtain any
-/// after its first attempt. The app treats a change here as its cue to run a
-/// one-shot fetch.
+/// This carries no track metadata; the track is sent separately, and only when
+/// it changes. Unlike the dictionary, the client query answers every time,
+/// which is what makes it the test for whether anything is playing at all.
 static void NMBEmitStatus(id client, BOOL isPlaying) {
     NSString *bundleIdentifier = nil;
     NSString *parentBundleIdentifier = nil;
@@ -450,14 +542,6 @@ static void NMBEmitStatus(id client, BOOL isPlaying) {
     NMBEmit(status);
 }
 
-/// Asks who is playing. Unlike the dictionary, this answers every time, which
-/// is what makes it usable as the test for whether anything is playing at all.
-static void NMBRefreshStatus(void) {
-    MR.getClient(dispatch_get_main_queue(), ^(id client) {
-        NMBEmitStatus(client, gLastKnownIsPlaying);
-    });
-}
-
 /// Forces the next status to be sent even if nothing has changed.
 static void NMBInvalidateStatus(void) {
     gLastSignature = nil;
@@ -466,12 +550,13 @@ static void NMBInvalidateStatus(void) {
 /// When the last `changed` event was sent.
 static NSTimeInterval gLastChangeEmit = 0;
 
-/// Tells the app something moved, so it should re-read the dictionary.
+/// Tells the app to go and re-read the dictionary itself, in a fresh process.
 ///
-/// This is separate from the status because a *track* change alters neither the
-/// client nor the playing state — status alone would report nothing new, and
-/// the app would never refetch. Notifications arrive in bursts of three to six
-/// for a single event, so they are coalesced.
+/// This is the fallback for a source the local read cannot see. It is separate
+/// from the status because a *track* change alters neither the client nor the
+/// playing state — status alone would report nothing new, and the app would
+/// never refetch. Notifications arrive in bursts of three to six for a single
+/// event, so they are coalesced.
 static void NMBEmitChanged(void) {
     NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
     if (now - gLastChangeEmit < 0.25) {
@@ -479,6 +564,37 @@ static void NMBEmitChanged(void) {
     }
     gLastChangeEmit = now;
     NMBEmit(@{@"type": @"changed"});
+}
+
+/// Reports who is playing, and the track itself.
+///
+/// The track is read locally, which works whether or not anything has changed
+/// — so this is also what puts a track already under way on screen when the
+/// app starts. When the local read comes back with nothing, the app is told to
+/// go and ask the daemon the old way, which is still the only route for a
+/// source the local state does not cover.
+static void NMBPublish(void) {
+    MR.getClient(dispatch_get_main_queue(), ^(id client) {
+        NMBEmitStatus(client, gLastKnownIsPlaying);
+
+        if (NMBEmitLocalState(client)) {
+            return;
+        }
+
+        // Nothing readable: make sure the next successful read is sent even if
+        // it matches what was last sent, and fall back on a one-shot fetch.
+        gLastStateSignature = nil;
+        if (client != nil) {
+            NMBEmitChanged();
+        }
+    });
+}
+
+/// Sends everything again, even if it matches what was sent last.
+static void NMBRepublish(void) {
+    NMBInvalidateStatus();
+    gLastStateSignature = nil;
+    NMBPublish();
 }
 
 #pragma mark - Commands
@@ -494,8 +610,7 @@ static void NMBHandleCommand(NSDictionary *command) {
     NMBEmit(@{@"type": @"ack", @"cmd": name});
 
     if ([name isEqualToString:@"refresh"]) {
-        NMBInvalidateStatus();
-        NMBRefreshStatus();
+        NMBRepublish();
         return;
     }
 
@@ -506,8 +621,7 @@ static void NMBHandleCommand(NSDictionary *command) {
             // The source reports its new position asynchronously; nudge it.
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
-                               NMBInvalidateStatus();
-                               NMBRefreshStatus();
+                               NMBRepublish();
                            });
         }
         return;
@@ -635,9 +749,9 @@ static void NMBStartCommandReader(void) {
 
 #pragma mark - Entry point
 
-/// Safety net for anything the notifications miss. The client query is cheap
-/// and answers every time; the dictionary request below is a standing one and
-/// costs nothing to leave outstanding.
+/// Safety net for anything the notifications miss, and what keeps the playhead
+/// honest: re-reading the local state picks up a seek made inside the source
+/// application, which MediaRemote reports in no other way.
 static const NSTimeInterval kPollInterval = 2.0;
 
 static NSString *const kUserInfoIsPlaying =
@@ -667,10 +781,10 @@ static void NMBNotificationCallback(CFNotificationCenterRef centre, void *observ
         gLastKnownIsPlaying = [playing boolValue];
     }
 
-    // Any MediaRemote notification means something moved. The app answers by
-    // running a one-shot fetch, which is the only way to get fresh metadata.
-    NMBRefreshStatus();
-    NMBEmitChanged();
+    // Any MediaRemote notification means something moved. The new state can be
+    // read directly, so it is sent here rather than asking the app to go and
+    // fetch it.
+    NMBPublish();
 }
 
 static void NMBObserveNotifications(void) {
@@ -707,19 +821,27 @@ __attribute__((constructor)) static void NMBMain(void) {
         NMBWatchParent();
         NMBStartCommandReader();
 
-        // One reading of the playing state for this process. Like the
-        // dictionary, this query answers once — but once is enough to start
-        // from, and the notifications report every change after that.
+        // Seed the playing state before the first publish, so the app is not
+        // told "not playing" for the instant before the query below answers.
+        // This read is synchronous and ungated, like the metadata one.
+        if (MR.nowPlayingRequest != nil) {
+            gLastKnownIsPlaying = ((BOOL (*)(Class, SEL))objc_msgSend)(
+                MR.nowPlayingRequest, sel_registerName("localIsPlaying"));
+        }
+
+        // The daemon's own answer, which supersedes it. Like the dictionary,
+        // this query answers once — but once is enough to start from, and the
+        // notifications report every change after that.
         if (MR.getIsPlaying != NULL) {
             MR.getIsPlaying(dispatch_get_main_queue(), ^(BOOL playing) {
                 gLastKnownIsPlaying = playing;
                 NMBInvalidateStatus();
-                NMBRefreshStatus();
+                NMBPublish();
             });
         }
 
         NMBEmit(@{@"type": @"ready", @"parentPID": @(gParentPID), @"pid": @(getpid())});
-        NMBRefreshStatus();
+        NMBPublish();
 
         // Orphan check. Runs every second so a quit app does not leave this
         // process behind for any noticeable length of time.
@@ -740,7 +862,7 @@ __attribute__((constructor)) static void NMBMain(void) {
                                                 (int64_t)(kPollInterval * NSEC_PER_SEC)),
                                   (uint64_t)(kPollInterval * NSEC_PER_SEC), NSEC_PER_SEC / 4);
         dispatch_source_set_event_handler(poll, ^{
-            NMBRefreshStatus();
+            NMBPublish();
         });
         dispatch_resume(poll);
 
