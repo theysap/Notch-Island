@@ -5,6 +5,20 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1] - 2026-09-18
+
+### Fixed
+
+- Settings… opened the window behind whatever the user was working in, and it
+  had to be found by hand. An accessory application never becomes active on
+  its own, and `SettingsLink` opens the scene without activating it. Measured
+  with an accessory app on this machine: opening a window without activating
+  leaves it visible but not key, with another application still frontmost;
+  activating first makes the window key and the app frontmost. The menu item
+  now activates the app before opening the scene, through the public
+  `openSettings` action rather than a private selector whose name has changed
+  across releases.
+
 ## [0.16.0] - 2026-09-18
 
 ### Added
