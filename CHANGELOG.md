@@ -5,6 +5,30 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-09-18
+
+### Added
+
+- The app now updates itself. The menu bar menu names the running version, and
+  offers "Update to x.y.z…" when a newer release is published on GitHub;
+  choosing it downloads the release, replaces the running copy and relaunches
+  into the new version. Checking happens on launch and every six hours, and
+  can be turned off in Settings; nothing is ever downloaded or installed
+  without being asked for.
+
+  Updates are verified against the `SHA256SUMS.txt` the release workflow
+  already publishes beside the disk image, and one that does not match is
+  discarded rather than installed. That matters more here than in most apps:
+  the app is ad-hoc signed and not notarised, so there is no Developer ID for
+  macOS to check on relaunch. Sparkle expects a stable code signature it can
+  compare, which this project has no way to provide, hence the built-in
+  updater.
+
+  Verified end to end against a locally served release: a 0.18.0 copy found
+  0.19.0, downloaded it, verified the digest, replaced itself and came back up
+  as 0.19.0. With the published digest corrupted, the same run refused the
+  update and stayed on 0.18.0.
+
 ## [0.17.3] - 2026-09-18
 
 ### Changed

@@ -8,6 +8,7 @@ final class AppSettings {
     private enum Key {
         static let showsMenuBarIcon = "showsMenuBarIcon"
         static let hidesWhenPaused = "hidesWhenPaused"
+        static let checksForUpdatesAutomatically = "checksForUpdatesAutomatically"
     }
 
     @ObservationIgnored
@@ -28,6 +29,14 @@ final class AppSettings {
         didSet { defaults.set(hidesWhenPaused, forKey: Key.hidesWhenPaused) }
     }
 
+    /// Looks for a newer release on launch and every few hours afterwards.
+    /// Nothing is downloaded or installed without being asked for.
+    var checksForUpdatesAutomatically: Bool {
+        didSet {
+            defaults.set(checksForUpdatesAutomatically, forKey: Key.checksForUpdatesAutomatically)
+        }
+    }
+
     /// Mirrors the login item's registration, which the system owns; there is
     /// nothing of our own to persist.
     var launchAtLogin: Bool {
@@ -43,10 +52,13 @@ final class AppSettings {
         defaults.register(defaults: [
             Key.showsMenuBarIcon: true,
             Key.hidesWhenPaused: false,
+            Key.checksForUpdatesAutomatically: true,
         ])
 
         showsMenuBarIcon = defaults.bool(forKey: Key.showsMenuBarIcon)
         hidesWhenPaused = defaults.bool(forKey: Key.hidesWhenPaused)
+        checksForUpdatesAutomatically = defaults.bool(
+            forKey: Key.checksForUpdatesAutomatically)
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 

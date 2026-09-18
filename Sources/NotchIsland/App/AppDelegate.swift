@@ -7,6 +7,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let media = MediaController()
     let settings = AppSettings()
+    lazy var updates = UpdateChecker(settings: settings)
     private lazy var notchController = NotchWindowController(media: media, settings: settings)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -34,6 +35,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        // Drives the whole update path — check, download, verify, replace,
+        // relaunch — without a menu to click. Point NOTCH_UPDATE_FEED at a
+        // local server and this exercises the real installer.
+        if CommandLine.arguments.contains("--update-now") {
+            Task {
+                await updates.check(userInitiated: true)
+                AppLog.app.notice(
+                    "Update state after check: \(String(describing: self.updates.state), privacy: .public)"
+                )
+                updates.installAvailableUpdate()
+                try? await Task.sleep(for: .seconds(90))
+                NSApp.terminate(nil)
+            }
+            return
+        }
+
         if let directory = IslandPreviewRenderer.requestedLiveDirectory {
             media.start()
             // Long enough for the bridge to start and answer.
@@ -56,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
 
         notchController.start()
+        updates.start()
         AppLog.app.info("NotchIsland launched")
     }
 

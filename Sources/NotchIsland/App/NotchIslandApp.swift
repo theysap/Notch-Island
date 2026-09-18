@@ -6,13 +6,13 @@ struct NotchIslandApp: App {
 
     var body: some Scene {
         MenuBarExtra(isInserted: menuBarIconBinding) {
-            MenuBarContent()
+            MenuBarContent(updates: appDelegate.updates)
         } label: {
             Image(nsImage: MenuBarIcon.image)
         }
 
         Settings {
-            SettingsView(settings: appDelegate.settings)
+            SettingsView(settings: appDelegate.settings, updates: appDelegate.updates)
         }
     }
 
@@ -31,8 +31,17 @@ struct NotchIslandApp: App {
 /// bar, so repeating it here would only be clutter.
 private struct MenuBarContent: View {
     @Environment(\.openSettings) private var openSettings
+    let updates: UpdateChecker
 
     var body: some View {
+        // What is running, so the version is answerable without opening
+        // anything.
+        Text("NotchIsland \(AppInfo.versionDescription)")
+
+        updateItem
+
+        Divider()
+
         // Not a `SettingsLink`, which opens the window without activating the
         // app. An accessory application never becomes active on its own, so
         // the window arrives visible but behind whatever the user was looking
@@ -49,5 +58,32 @@ private struct MenuBarContent: View {
             NSApp.terminate(nil)
         }
         .keyboardShortcut("q")
+    }
+
+    /// The one line that changes: an offer while there is one, progress while
+    /// it installs, and the way to look again otherwise.
+    @ViewBuilder
+    private var updateItem: some View {
+        switch updates.state {
+        case .available(let release):
+            Button("Update to \(release.version.description)…") {
+                updates.installAvailableUpdate()
+            }
+            .disabled(!updates.canInstall)
+
+        case .checking:
+            Text("Checking for updates…")
+
+        case .downloading(let fraction):
+            Text("Downloading update… \(Int(fraction * 100))%")
+
+        case .installing:
+            Text("Installing update…")
+
+        case .idle, .upToDate, .failed:
+            Button("Check for Updates…") {
+                Task { await updates.check(userInitiated: true) }
+            }
+        }
     }
 }
