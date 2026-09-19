@@ -11,6 +11,9 @@ dist/
 # macOS
 .DS_Store
 
+# Editors
+.vscode/
+
 # Xcode (if ever opened there)
 *.xcodeproj/xcuserdata/
 DerivedData/

@@ -87,6 +87,25 @@ jobs:
         if: always() && env.DEVELOPER_ID_CERTIFICATE_P12 != ''
         run: security delete-keychain "${RUNNER_TEMP}/signing.keychain-db" || true
 
+      # A second copy under a name that never changes, so that
+      #   https://github.com/theysap/Notch-Island/releases/latest/download/NotchIsland.dmg
+      # is a permanent download link. GitHub serves that shortcut only for an
+      # asset whose filename is the same in every release, which the versioned
+      # image can never be. It is made before the checksums below, so the fixed
+      # name gets its own line in SHA256SUMS.txt and can be verified the same
+      # way. Scripts/install.sh looks its entry up by exact filename, so the
+      # extra line changes nothing for it.
+      - name: Add a fixed-name copy of the disk image
+        run: |
+          cd dist
+          count="$(ls -1 *.dmg | wc -l)"
+          if [ "${count}" -ne 1 ]; then
+            echo "Expected exactly one .dmg in dist/, found ${count}:" >&2
+            ls -1 *.dmg >&2
+            exit 1
+          fi
+          cp "$(ls -1 *.dmg)" NotchIsland.dmg
+
       - name: Checksums
         run: |
           cd dist

@@ -5,6 +5,46 @@ All notable changes to NotchIsland are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2026-09-19
+
+### Added
+
+- **A one-line installer.** `curl -fsSL https://theysap.com/install/notch-island | bash`
+  checks this Mac can run the app, resolves the newest release without calling
+  api.github.com, verifies the disk image against the checksum published beside
+  it, quits any running copy, and installs to `/Applications`, or to
+  `~/Applications` when that is not writable.
+
+  Installing this way is not blocked on first launch. macOS attaches its
+  quarantine flag to what a browser downloads, not to what `curl` fetches, so
+  the app opens straight away. The script is `Scripts/install.sh`; theysap.com
+  serves a copy of it as plain text, so it can be read before it is piped into
+  a shell. `NOTCH_VERSION` pins a version and `NOTCH_NO_LAUNCH=1` skips the
+  launch at the end.
+
+- **A fixed-name copy of the disk image in every release.** Beside
+  `NotchIsland-1.1.3.dmg`, releases now publish `NotchIsland.dmg`, which makes
+  `releases/latest/download/NotchIsland.dmg` a permanent download link. GitHub
+  serves that shortcut only for an asset whose filename is the same in every
+  release, which a versioned image can never be. Both appear in
+  `SHA256SUMS.txt`, and `Scripts/install.sh` looks its entry up by exact
+  filename, so the versioned image remains the one it fetches and verifies.
+
+### Fixed
+
+- **CI had never run on a single commit.** The workflow was set to trigger on
+  pushes to `main`, and the default branch here is `master`, so the filter
+  matched nothing: every workflow run in this repository's history came from a
+  release tag. `./Scripts/test.sh` now runs on every push to `master`, rather
+  than first being exercised inside the release build, by which point a tag is
+  already published.
+
+### Changed
+
+- The install instructions lead with the one-line installer. The Gatekeeper
+  walkthrough stays, scoped to browser downloads, which are the only ones it
+  applies to.
+
 ## [1.1.2] - 2026-09-18
 
 ### Fixed

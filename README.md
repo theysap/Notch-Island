@@ -79,14 +79,36 @@ On an external monitor, or with the lid closed, nothing appears.
 
 ## Installing
 
+One line. It checks this Mac can run NotchIsland, verifies the download
+against the checksum published beside it, and puts the app in Applications:
+
+```sh
+curl -fsSL https://theysap.com/install/notch-island | bash
+```
+
+Nothing is blocked on first launch this way: macOS attaches its quarantine
+flag to what a *browser* downloads, not to what `curl` fetches, so the app
+opens straight away.
+
+That script is [`Scripts/install.sh`](Scripts/install.sh) in this repository,
+and theysap.com serves a copy of it as plain text, so you can read it before
+piping it into a shell. `NOTCH_VERSION` pins a version, and
+`NOTCH_NO_LAUNCH=1` skips the launch at the end.
+
+### Or by hand
+
 Download the `.dmg` from [Releases](../../releases), open it, and drag
-NotchIsland into Applications.
+NotchIsland into Applications. Every release also publishes the same image
+under a fixed name, so
+[`releases/latest/download/NotchIsland.dmg`](../../releases/latest/download/NotchIsland.dmg)
+is always the newest build.
 
-### The first launch is blocked. Here is how to get past it
+### That first launch is blocked. Here is how to get past it
 
-macOS will refuse to open it, with *"Apple could not verify 'NotchIsland' is
-free of malware that may harm your Mac or compromise your privacy."* The only
-buttons are **Done** and **Move to Bin**.
+A `.dmg` downloaded in a browser carries the quarantine flag, so macOS will
+refuse to open what is inside it, with *"Apple could not verify 'NotchIsland'
+is free of malware that may harm your Mac or compromise your privacy."* The
+only buttons are **Done** and **Move to Bin**.
 
 That wording is alarming and the dialog offers no way forward, so to be plain
 about what it means: macOS is not reporting that it found anything. It is
@@ -105,7 +127,7 @@ Control-click → Open shortcut that used to bypass this was removed in macOS
 3. Click **Open Anyway**, authenticate, and confirm.
 
 Or, if you would rather do it in one line — this is exactly what the steps
-above amount to, removing the quarantine flag macOS attaches to downloads:
+above amount to, removing the quarantine flag macOS attached to the download:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/NotchIsland.app
